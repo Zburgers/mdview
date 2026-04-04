@@ -19,6 +19,10 @@ It is designed to feel minimal and fast while staying easy to extend.
 - Live rendering using Python-Markdown
 - Dark mode toggle for preview
 - Copy rendered HTML to clipboard
+- Open/save markdown files
+- Clear editor button
+- Export preview to PDF
+- Optional sync scrolling (enabled by default)
 - Local install script for desktop launcher + icons
 
 ## Screenshot
@@ -116,9 +120,6 @@ Useful options:
 
 ## Roadmap
 
-- Export to PDF
-- Optional synced scrolling
-- Save/open markdown files
 - Packaging for RPM/Flatpak
 
 ## License
