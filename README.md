@@ -1,5 +1,13 @@
 # mdview
 
+```text
+                _       _
+ _ __ ___   __| |_   _(_) _____      __
+| '_ ` _ \ / _` | | | | |/ _ \ \ /\ / /
+| | | | | | (_| | |_| | |  __/\ V  V /
+|_| |_| |_|\__,_|\__,_|_|\___| \_/\_/
+```
+
 `mdview` is a lightweight, native GTK Markdown editor with live preview.
 
 It is designed to feel minimal and fast while staying easy to extend.
@@ -15,11 +23,7 @@ It is designed to feel minimal and fast while staying easy to extend.
 
 ## Screenshot
 
-Add a screenshot here after publishing:
-
-```text
-docs/screenshot.png
-```
+![mdview Demo](docs/Demo.png)
 
 ## Tech Stack
 
@@ -78,11 +82,35 @@ Skip dependency installation:
 ./uninstall.sh
 ```
 
+## Release
+
+Create and publish a GitHub release:
+
+```bash
+./release.sh
+```
+
+What it does:
+- verifies clean git state
+- runs `python3 -m py_compile markdown_editor.py`
+- auto bumps patch version from latest `vX.Y.Z` tag
+- creates annotated tag and pushes it
+- creates GitHub release with generated notes
+- uploads `mdview-vX.Y.Z.tar.gz` as a release asset
+
+Useful options:
+
+```bash
+./release.sh --dry-run
+./release.sh --version v1.2.0
+```
+
 ## Project Layout
 
 - `markdown_editor.py` - main GTK app
 - `install.sh` - user-local installer
 - `uninstall.sh` - remove installed files
+- `release.sh` - version/tag/release automation
 - `icons/hicolor/` - app icon assets
 - `mdview.desktop` - development desktop entry template
 
