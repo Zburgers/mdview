@@ -2,7 +2,6 @@
 from pathlib import Path
 
 import gi
-import markdown
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
@@ -10,7 +9,11 @@ gi.require_version("WebKit", "6.0")
 
 from gi.repository import Gio, Gtk, GLib, Gdk, WebKit
 
-from mdview_utils import compute_scroll_ratio, suggested_pdf_filename
+from mdview_utils import (
+    compute_scroll_ratio,
+    render_markdown_html,
+    suggested_pdf_filename,
+)
 
 DEBOUNCE_MS = 150
 APP_ID = "dev.example.MarkdownPreview"
@@ -37,33 +40,15 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
         self.save_dialog.set_title("Save Markdown File")
         self.save_dialog.set_filters(self.build_markdown_filters())
 
+        self.menu_actions = []
+
         header = Gtk.HeaderBar()
         header.set_title_widget(Gtk.Label(label="mdview"))
         self.set_titlebar(header)
 
-        copy_button = Gtk.Button(label="Copy HTML")
-        copy_button.connect("clicked", self.on_copy_html)
-        header.pack_start(copy_button)
-
-        open_button = Gtk.Button(label="Open")
-        open_button.connect("clicked", self.on_open_file)
-        header.pack_start(open_button)
-
-        save_button = Gtk.Button(label="Save")
-        save_button.connect("clicked", self.on_save_file)
-        header.pack_start(save_button)
-
-        save_as_button = Gtk.Button(label="Save As")
-        save_as_button.connect("clicked", self.on_save_as_file)
-        header.pack_start(save_as_button)
-
-        clear_button = Gtk.Button(label="Clear")
-        clear_button.connect("clicked", self.on_clear_editor)
-        header.pack_start(clear_button)
-
-        pdf_button = Gtk.Button(label="Export PDF")
-        pdf_button.connect("clicked", self.on_export_pdf)
-        header.pack_start(pdf_button)
+        header.pack_start(self.build_menu_button("File", self.build_file_menu()))
+        header.pack_start(self.build_menu_button("Edit", self.build_edit_menu()))
+        header.pack_start(self.build_menu_button("About", self.build_about_menu()))
 
         sync_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         sync_box.append(Gtk.Label(label="Sync Scroll"))
@@ -72,10 +57,6 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
         self.sync_switch.connect("state-set", self.on_sync_switch_state_set)
         sync_box.append(self.sync_switch)
         header.pack_end(sync_box)
-
-        theme_button = Gtk.Button(label="Toggle Dark")
-        theme_button.connect("clicked", self.on_toggle_dark)
-        header.pack_end(theme_button)
 
         paned = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         paned.set_resize_start_child(True)
@@ -144,6 +125,82 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
 
         return filters
 
+    def register_menu_action(self, action):
+        self.add_action(action)
+        self.menu_actions.append(action)
+
+    def build_menu_button(self, label, menu_model):
+        button = Gtk.MenuButton()
+        button.set_label(label)
+        button.set_menu_model(menu_model)
+        return button
+
+    def build_file_menu(self):
+        open_action = Gio.SimpleAction.new("open", None)
+        open_action.connect("activate", self.on_open_action)
+        self.register_menu_action(open_action)
+
+        save_action = Gio.SimpleAction.new("save", None)
+        save_action.connect("activate", self.on_save_action)
+        self.register_menu_action(save_action)
+
+        save_as_action = Gio.SimpleAction.new("save_as", None)
+        save_as_action.connect("activate", self.on_save_as_action)
+        self.register_menu_action(save_as_action)
+
+        export_pdf_action = Gio.SimpleAction.new("export_pdf", None)
+        export_pdf_action.connect("activate", self.on_export_pdf_action)
+        self.register_menu_action(export_pdf_action)
+
+        quit_action = Gio.SimpleAction.new("quit", None)
+        quit_action.connect("activate", self.on_quit_action)
+        self.register_menu_action(quit_action)
+
+        menu = Gio.Menu.new()
+        menu.append("Open", "win.open")
+        menu.append("Save", "win.save")
+        menu.append("Save As", "win.save_as")
+        menu.append("Export PDF", "win.export_pdf")
+        menu.append("Quit", "win.quit")
+        return menu
+
+    def build_edit_menu(self):
+        clear_action = Gio.SimpleAction.new("clear", None)
+        clear_action.connect("activate", self.on_clear_action)
+        self.register_menu_action(clear_action)
+
+        copy_html_action = Gio.SimpleAction.new("copy_html", None)
+        copy_html_action.connect("activate", self.on_copy_html_action)
+        self.register_menu_action(copy_html_action)
+
+        dark_action = Gio.SimpleAction.new_stateful(
+            "toggle_dark", None, GLib.Variant.new_boolean(False)
+        )
+        dark_action.connect("change-state", self.on_toggle_dark_action_state)
+        self.register_menu_action(dark_action)
+
+        sync_action = Gio.SimpleAction.new_stateful(
+            "toggle_sync_scroll", None, GLib.Variant.new_boolean(True)
+        )
+        sync_action.connect("change-state", self.on_toggle_sync_action_state)
+        self.register_menu_action(sync_action)
+
+        menu = Gio.Menu.new()
+        menu.append("Clear", "win.clear")
+        menu.append("Copy HTML", "win.copy_html")
+        menu.append("Dark Mode", "win.toggle_dark")
+        menu.append("Sync Scroll", "win.toggle_sync_scroll")
+        return menu
+
+    def build_about_menu(self):
+        about_action = Gio.SimpleAction.new("about", None)
+        about_action.connect("activate", self.on_about_action)
+        self.register_menu_action(about_action)
+
+        menu = Gio.Menu.new()
+        menu.append("About mdview", "win.about")
+        return menu
+
     def update_window_title(self):
         if self.current_file is None:
             self.set_title("mdview - Untitled")
@@ -164,9 +221,7 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
     def build_html(self):
         text = self.get_markdown_text()
 
-        html_body = markdown.markdown(
-            text, extensions=["fenced_code", "tables", "nl2br"]
-        )
+        html_body = render_markdown_html(text)
 
         if self.is_dark:
             bg = "#1e1e1e"
@@ -291,6 +346,47 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
         clipboard = Gdk.Display.get_default().get_clipboard()
         clipboard.set(html)
 
+    def on_open_action(self, _action, _parameter):
+        self.on_open_file(None)
+
+    def on_save_action(self, _action, _parameter):
+        self.on_save_file(None)
+
+    def on_save_as_action(self, _action, _parameter):
+        self.on_save_as_file(None)
+
+    def on_export_pdf_action(self, _action, _parameter):
+        self.on_export_pdf(None)
+
+    def on_clear_action(self, _action, _parameter):
+        self.on_clear_editor(None)
+
+    def on_copy_html_action(self, _action, _parameter):
+        self.on_copy_html(None)
+
+    def on_toggle_dark_action_state(self, action, state):
+        self.is_dark = state.get_boolean()
+        action.set_state(state)
+        self.update_preview()
+
+    def on_toggle_sync_action_state(self, action, state):
+        self.sync_scroll_enabled = state.get_boolean()
+        action.set_state(state)
+        self.sync_switch.set_active(self.sync_scroll_enabled)
+        if self.sync_scroll_enabled:
+            self.schedule_sync_scroll()
+
+    def on_quit_action(self, _action, _parameter):
+        app = self.get_application()
+        if app is not None:
+            app.quit()
+
+    def on_about_action(self, _action, _parameter):
+        dialog = Gtk.AboutDialog(transient_for=self, modal=True)
+        dialog.set_program_name("mdview")
+        dialog.set_comments("Lightweight GTK Markdown editor with live preview")
+        dialog.present()
+
     def on_open_file(self, _button):
         self.file_dialog.open(self, None, self.on_open_file_finish)
 
@@ -383,12 +479,18 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
 
     def on_sync_switch_state_set(self, _switch, state):
         self.sync_scroll_enabled = bool(state)
+        action = self.lookup_action("toggle_sync_scroll")
+        if action is not None:
+            action.set_state(GLib.Variant.new_boolean(self.sync_scroll_enabled))
         if self.sync_scroll_enabled:
             self.schedule_sync_scroll()
         return False
 
     def on_toggle_dark(self, _button):
         self.is_dark = not self.is_dark
+        action = self.lookup_action("toggle_dark")
+        if action is not None:
+            action.set_state(GLib.Variant.new_boolean(self.is_dark))
         self.update_preview()
 
 

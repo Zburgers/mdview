@@ -1,6 +1,10 @@
 import unittest
 
-from mdview_utils import compute_scroll_ratio, suggested_pdf_filename
+from mdview_utils import (
+    compute_scroll_ratio,
+    render_markdown_html,
+    suggested_pdf_filename,
+)
 
 
 class ComputeScrollRatioTests(unittest.TestCase):
@@ -26,6 +30,24 @@ class SuggestedPdfFilenameTests(unittest.TestCase):
 
     def test_reuses_stem_for_non_markdown_name(self):
         self.assertEqual(suggested_pdf_filename("draft.txt"), "draft.pdf")
+
+
+class RenderMarkdownHtmlTests(unittest.TestCase):
+    def test_renders_strikethrough_plugin(self):
+        html = render_markdown_html("~~removed~~")
+        self.assertIn("<del>removed</del>", html)
+
+    def test_renders_table_plugin(self):
+        html = render_markdown_html("|a|\n|-|\n|b|")
+        self.assertIn("<table>", html)
+
+    def test_renders_task_lists_plugin(self):
+        html = render_markdown_html("- [x] done")
+        self.assertIn("task-list-item", html)
+
+    def test_renders_footnotes_plugin(self):
+        html = render_markdown_html("a[^1]\n\n[^1]: note")
+        self.assertIn("footnotes", html)
 
 
 if __name__ == "__main__":

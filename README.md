@@ -16,13 +16,14 @@ It is designed to feel minimal and fast while staying easy to extend.
 
 - Native GTK 4 application (no Electron)
 - Split editor/preview layout with draggable divider
-- Live rendering using Python-Markdown
+- Live rendering using Mistune (faster, plugin-based)
 - Dark mode toggle for preview
 - Copy rendered HTML to clipboard
 - Open/save markdown files
 - Clear editor button
 - Export preview to PDF
 - Optional sync scrolling (enabled by default)
+- File/Edit/About menus with keyboard-friendly actions
 - Local install script for desktop launcher + icons
 
 ## Screenshot
@@ -34,7 +35,7 @@ It is designed to feel minimal and fast while staying easy to extend.
 - Python 3
 - PyGObject (`Gtk`, `Gdk`, `GLib`)
 - WebKitGTK (`WebKit` introspection)
-- Python-Markdown
+- Mistune
 
 ## Requirements (Fedora)
 
@@ -47,7 +48,7 @@ sudo dnf install -y python3-gobject gtk4 webkit2gtk4.1 python3-pip
 Python package:
 
 ```bash
-python3 -m pip install --user markdown
+python3 -m pip install --user mistune
 ```
 
 ## Run From Source
@@ -67,6 +68,7 @@ Install for the current user (recommended):
 What it installs:
 
 - App code: `~/.local/share/mdview/markdown_editor.py`
+- App helper module: `~/.local/share/mdview/mdview_utils.py`
 - Desktop file: `~/.local/share/applications/mdview.desktop`
 - Icons: `~/.local/share/icons/hicolor/.../mdview.*`
 

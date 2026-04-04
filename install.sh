@@ -54,8 +54,8 @@ install_python_deps() {
         return 0
     fi
 
-    log "Installing Python dependency: markdown"
-    python3 -m pip install --user --upgrade markdown
+    log "Installing Python dependency: mistune"
+    python3 -m pip install --user --upgrade mistune
 }
 
 parse_args() {
