@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=mdview
+Comment=Lightweight GTK Markdown editor with live preview
+Exec=python3 /home/naki/Desktop/itsthatnewshit/mdview/markdown_editor.py
+Icon=mdview
+Terminal=false
+Categories=Utility;TextEditor;
+StartupNotify=true
+StartupWMClass=dev.example.MarkdownPreview
+NoDisplay=true
