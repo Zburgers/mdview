@@ -121,6 +121,9 @@ Useful options:
 ## Roadmap
 
 - Packaging for RPM/Flatpak
+ - Unsaved-changes indicator in the window title and confirm dialog for destructive actions (Open/Clear)
+ - Add an automated CI job that runs py_compile and unit tests on push
+ - Add an integration test to exercise open/save and export workflows
 
 ## License
 
