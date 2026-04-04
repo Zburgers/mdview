@@ -96,6 +96,7 @@ main() {
 
     log "Installing application files to $APP_INSTALL_DIR"
     install -m 0755 "$SCRIPT_DIR/markdown_editor.py" "$APP_INSTALL_DIR/markdown_editor.py"
+    install -m 0644 "$SCRIPT_DIR/mdview_utils.py" "$APP_INSTALL_DIR/mdview_utils.py"
 
     log "Installing icons"
     copy_icon_size "64x64"
