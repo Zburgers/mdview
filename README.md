@@ -17,6 +17,7 @@ It is designed to feel minimal and fast while staying easy to extend.
 - Native GTK 4 application (no Electron)
 - Split editor/preview layout with draggable divider
 - Live rendering using Mistune (faster, plugin-based)
+- Mermaid diagram rendering in preview (offline local bundle)
 - Dark mode toggle for preview
 - Copy rendered HTML to clipboard
 - Open/save markdown files
@@ -36,13 +37,39 @@ It is designed to feel minimal and fast while staying easy to extend.
 - PyGObject (`Gtk`, `Gdk`, `GLib`)
 - WebKitGTK (`WebKit` introspection)
 - Mistune
+- Mermaid.js (bundled locally for offline rendering)
 
-## Requirements (Fedora)
+## Requirements
 
-System packages:
+Core runtime:
+- Python 3
+- GTK 4 + WebKitGTK + PyGObject introspection bindings
+
+Fedora/RHEL (dnf):
 
 ```bash
 sudo dnf install -y python3-gobject gtk4 webkit2gtk4.1 python3-pip
+```
+
+Debian/Ubuntu (apt):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 python3-pip
+```
+
+(On some distros/releases, WebKit package name may be `gir1.2-webkit2-4.1`.)
+
+Arch (pacman):
+
+```bash
+sudo pacman -S --needed python python-gobject gtk4 webkitgtk-6.0 python-pip
+```
+
+openSUSE (zypper):
+
+```bash
+sudo zypper --non-interactive install python3-gobject-Gdk gtk4 typelib-1_0-WebKit-6_0 python3-pip
 ```
 
 Python package:
@@ -56,6 +83,23 @@ python3 -m pip install --user mistune
 ```bash
 python3 markdown_editor.py
 ```
+
+## Mermaid Support
+
+`mdview` automatically renders fenced Mermaid blocks in the preview pane:
+
+~~~markdown
+```mermaid
+flowchart TD
+  A[Start] --> B[Render diagram]
+```
+~~~
+
+Security posture for preview content:
+- Preview is loaded with a restrictive Content Security Policy.
+- No remote network requests are allowed from preview content.
+- Navigation/new-window actions from preview links are blocked.
+- Mermaid is loaded from a local bundled file (`assets/vendor/mermaid.min.js`).
 
 ## Install (Desktop Integration)
 

@@ -10,7 +10,9 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gio, Gtk, GLib, Gdk, WebKit
 
 from mdview_utils import (
+    build_preview_html,
     compute_scroll_ratio,
+    render_mermaid_blocks,
     render_markdown_html,
     suggested_pdf_filename,
 )
@@ -18,6 +20,8 @@ from mdview_utils import (
 DEBOUNCE_MS = 150
 APP_ID = "dev.example.MarkdownPreview"
 APP_ICON_NAME = "mdview"
+BASE_DIR = Path(__file__).resolve().parent
+MERMAID_BUNDLE_PATH = BASE_DIR / "assets" / "vendor" / "mermaid.min.js"
 
 
 class MarkdownEditorWindow(Gtk.ApplicationWindow):
@@ -97,7 +101,9 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
 
         settings = self.webview.get_settings()
         if settings is not None:
-            settings.set_enable_write_console_messages_to_stdout(True)
+            self.configure_webview_settings(settings)
+
+        self.webview.connect("decide-policy", self.on_webview_decide_policy)
 
         paned.set_end_child(self.webview)
 
@@ -201,6 +207,24 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
         menu.append("About mdview", "win.about")
         return menu
 
+    def configure_webview_settings(self, settings):
+        setting_values = {
+            "set_enable_write_console_messages_to_stdout": True,
+            "set_enable_javascript": True,
+            "set_enable_webgl": False,
+            "set_enable_webaudio": False,
+            "set_enable_mediasource": False,
+            "set_enable_media": False,
+            "set_enable_media_capabilities": False,
+            "set_enable_back_forward_navigation_gestures": False,
+            "set_enable_hyperlink_auditing": False,
+        }
+
+        for method_name, value in setting_values.items():
+            method = getattr(settings, method_name, None)
+            if method is not None:
+                method(value)
+
     def update_window_title(self):
         if self.current_file is None:
             self.set_title("mdview - Untitled")
@@ -223,104 +247,21 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
 
         html_body = render_markdown_html(text)
 
-        if self.is_dark:
-            bg = "#1e1e1e"
-            fg = "#e6e6e6"
-            muted = "#b8b8b8"
-            code_bg = "#2b2b2b"
-            border = "#3a3a3a"
-        else:
-            bg = "#ffffff"
-            fg = "#1f2328"
-            muted = "#57606a"
-            code_bg = "#f6f8fa"
-            border = "#d0d7de"
+        html_body = render_mermaid_blocks(html_body)
+        mermaid_script_path = None
+        if MERMAID_BUNDLE_PATH.exists():
+            mermaid_script_path = "assets/vendor/mermaid.min.js"
 
-        return f"""
-<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        :root {{
-            color-scheme: {"dark" if self.is_dark else "light"};
-        }}
-        html, body {{
-            margin: 0;
-            padding: 0;
-            background: {bg};
-            color: {fg};
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            line-height: 1.6;
-        }}
-        body {{
-            padding: 24px;
-            max-width: 900px;
-        }}
-        h1, h2, h3, h4 {{
-            margin-top: 1.4em;
-            margin-bottom: 0.6em;
-        }}
-        p, ul, ol, pre, blockquote {{
-            margin-top: 0.8em;
-            margin-bottom: 0.8em;
-        }}
-        a {{
-            color: #0969da;
-        }}
-        pre {{
-            background: {code_bg};
-            border: 1px solid {border};
-            padding: 12px;
-            border-radius: 8px;
-            overflow-x: auto;
-        }}
-        code {{
-            font-family: "JetBrains Mono", "Fira Code", monospace;
-            font-size: 0.95em;
-        }}
-        :not(pre) > code {{
-            background: {code_bg};
-            border: 1px solid {border};
-            padding: 0.15em 0.35em;
-            border-radius: 6px;
-        }}
-        blockquote {{
-            border-left: 4px solid {border};
-            padding-left: 12px;
-            color: {muted};
-            margin-left: 0;
-        }}
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-        }}
-        th, td {{
-            border: 1px solid {border};
-            padding: 8px 10px;
-            text-align: left;
-        }}
-    </style>
-</head>
-<body>
-    {html_body}
-    <script>
-        function setScrollRatio(ratio) {{
-            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-            if (maxScroll <= 0) {{
-                return;
-            }}
-            const clamped = Math.min(1, Math.max(0, ratio));
-            window.scrollTo(0, maxScroll * clamped);
-        }}
-    </script>
-</body>
-</html>
-"""
+        return build_preview_html(
+            html_body,
+            is_dark=self.is_dark,
+            mermaid_script_path=mermaid_script_path,
+            nonce=GLib.uuid_string_random(),
+        )
 
     def update_preview(self):
         html = self.build_html()
-        self.webview.load_html(html, None)
+        self.webview.load_html(html, f"{BASE_DIR.resolve().as_uri()}/")
         self._update_source_id = None
         return False
 
@@ -476,6 +417,15 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
     def on_webview_load_changed(self, _webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
             self.schedule_sync_scroll()
+
+    def on_webview_decide_policy(self, _webview, decision, decision_type):
+        if decision_type in (
+            WebKit.PolicyDecisionType.NAVIGATION_ACTION,
+            WebKit.PolicyDecisionType.NEW_WINDOW_ACTION,
+        ):
+            decision.ignore()
+            return True
+        return False
 
     def on_sync_switch_state_set(self, _switch, state):
         self.sync_scroll_enabled = bool(state)

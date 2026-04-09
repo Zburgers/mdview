@@ -1,7 +1,9 @@
 import unittest
 
 from mdview_utils import (
+    build_preview_html,
     compute_scroll_ratio,
+    render_mermaid_blocks,
     render_markdown_html,
     suggested_pdf_filename,
 )
@@ -48,6 +50,51 @@ class RenderMarkdownHtmlTests(unittest.TestCase):
     def test_renders_footnotes_plugin(self):
         html = render_markdown_html("a[^1]\n\n[^1]: note")
         self.assertIn("footnotes", html)
+
+    def test_renders_mermaid_code_fence_with_language_class(self):
+        html = render_markdown_html("```mermaid\nflowchart TD\nA-->B\n```")
+        self.assertIn('class="language-mermaid"', html)
+
+
+class RenderMermaidBlocksTests(unittest.TestCase):
+    def test_converts_mermaid_code_block_to_mermaid_pre(self):
+        html = (
+            '<p>Pipeline</p><pre><code class="language-mermaid">'
+            "flowchart TD\nA--&gt;B\n"
+            "</code></pre>"
+        )
+
+        rendered = render_mermaid_blocks(html)
+
+        self.assertIn('<pre class="mermaid">flowchart TD\nA--&gt;B\n</pre>', rendered)
+
+    def test_leaves_non_mermaid_code_blocks_untouched(self):
+        html = '<pre><code class="language-python">print("ok")</code></pre>'
+        rendered = render_mermaid_blocks(html)
+        self.assertEqual(rendered, html)
+
+
+class BuildPreviewHtmlTests(unittest.TestCase):
+    def test_embeds_csp_and_sandbox_restrictions(self):
+        html = build_preview_html("<p>Hello</p>", is_dark=False, nonce="fixed")
+
+        self.assertIn("Content-Security-Policy", html)
+        self.assertIn("default-src 'none'", html)
+        self.assertIn("connect-src 'none'", html)
+        self.assertIn("object-src 'none'", html)
+        self.assertIn("script-src 'self' 'nonce-fixed'", html)
+
+    def test_includes_mermaid_bootstrap_when_script_path_set(self):
+        html = build_preview_html(
+            '<pre class="mermaid">flowchart TD\nA--&gt;B\n</pre>',
+            is_dark=False,
+            mermaid_script_path="assets/vendor/mermaid.min.js",
+            nonce="fixed",
+        )
+
+        self.assertIn('<script src="assets/vendor/mermaid.min.js"></script>', html)
+        self.assertIn("if (window.mermaid)", html)
+        self.assertIn("securityLevel: 'strict'", html)
 
 
 if __name__ == "__main__":
