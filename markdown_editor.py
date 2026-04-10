@@ -12,8 +12,10 @@ from gi.repository import Gio, Gtk, GLib, Gdk, WebKit
 from mdview_utils import (
     build_preview_html,
     compute_scroll_ratio,
+    generate_nonce,
     render_mermaid_blocks,
     render_markdown_html,
+    should_block_policy_decision,
     suggested_pdf_filename,
 )
 
@@ -256,7 +258,7 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
             html_body,
             is_dark=self.is_dark,
             mermaid_script_path=mermaid_script_path,
-            nonce=GLib.uuid_string_random(),
+            nonce=generate_nonce(),
         )
 
     def update_preview(self):
@@ -419,10 +421,15 @@ class MarkdownEditorWindow(Gtk.ApplicationWindow):
             self.schedule_sync_scroll()
 
     def on_webview_decide_policy(self, _webview, decision, decision_type):
-        if decision_type in (
-            WebKit.PolicyDecisionType.NAVIGATION_ACTION,
-            WebKit.PolicyDecisionType.NEW_WINDOW_ACTION,
-        ):
+        decision_type_name = decision_type.value_nick
+
+        navigation_type = None
+        if decision_type == WebKit.PolicyDecisionType.NAVIGATION_ACTION:
+            nav_action = decision.get_navigation_action()
+            if nav_action is not None:
+                navigation_type = nav_action.get_navigation_type().value_nick
+
+        if should_block_policy_decision(decision_type_name, navigation_type):
             decision.ignore()
             return True
         return False

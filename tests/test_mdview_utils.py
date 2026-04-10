@@ -1,8 +1,11 @@
 import unittest
+import re
 
 from mdview_utils import (
     build_preview_html,
     compute_scroll_ratio,
+    generate_nonce,
+    should_block_policy_decision,
     render_mermaid_blocks,
     render_markdown_html,
     suggested_pdf_filename,
@@ -95,6 +98,30 @@ class BuildPreviewHtmlTests(unittest.TestCase):
         self.assertIn('<script src="assets/vendor/mermaid.min.js"></script>', html)
         self.assertIn("if (window.mermaid)", html)
         self.assertIn("securityLevel: 'strict'", html)
+
+
+class PolicyDecisionTests(unittest.TestCase):
+    def test_blocks_new_window_actions(self):
+        blocked = should_block_policy_decision("new-window-action")
+        self.assertTrue(blocked)
+
+    def test_allows_navigation_actions_for_preview_stability(self):
+        blocked = should_block_policy_decision(
+            "navigation-action", navigation_type="link-clicked"
+        )
+        self.assertFalse(blocked)
+
+    def test_allows_non_click_navigation_actions(self):
+        blocked = should_block_policy_decision(
+            "navigation-action", navigation_type="other"
+        )
+        self.assertFalse(blocked)
+
+
+class NonceTests(unittest.TestCase):
+    def test_generates_hex_nonce(self):
+        nonce = generate_nonce()
+        self.assertRegex(nonce, re.compile(r"^[0-9a-f]{32}$"))
 
 
 if __name__ == "__main__":

@@ -106,8 +106,19 @@ install_python_deps() {
         return 0
     fi
 
+    if python3 -c "import mistune" >/dev/null 2>&1; then
+        log "Python dependency already available: mistune"
+        return 0
+    fi
+
     log "Installing Python dependency: mistune"
-    python3 -m pip install --user --upgrade mistune
+    if python3 -m pip install --user --upgrade mistune; then
+        return 0
+    fi
+
+    log "pip install failed (likely PEP 668 externally managed environment)"
+    log "Retrying with --break-system-packages in user site-packages"
+    python3 -m pip install --user --break-system-packages --upgrade mistune
 }
 
 parse_args() {

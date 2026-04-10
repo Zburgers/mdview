@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import secrets
 
 import mistune
 
@@ -37,6 +38,17 @@ _MERMAID_CODE_BLOCK_RE = re.compile(
 
 def render_mermaid_blocks(html_body):
     return _MERMAID_CODE_BLOCK_RE.sub(r'<pre class="mermaid">\1</pre>', html_body)
+
+
+def should_block_policy_decision(decision_type, navigation_type=None):
+    if decision_type == "new-window-action":
+        return True
+
+    return False
+
+
+def generate_nonce():
+    return secrets.token_hex(16)
 
 
 def build_preview_html(
@@ -175,6 +187,11 @@ def build_preview_html(
             if (anchor) {{
                 event.preventDefault();
             }}
+        }});
+
+        window.addEventListener('error', function(event) {{
+            const message = event && event.message ? event.message : 'Unknown preview error';
+            document.body.innerHTML = '<pre style="white-space: pre-wrap;">Preview error: ' + message + '</pre>';
         }});
     </script>
 </body>

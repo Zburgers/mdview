@@ -78,6 +78,12 @@ Python package:
 python3 -m pip install --user mistune
 ```
 
+If your distro Python is externally managed (PEP 668), use:
+
+```bash
+python3 -m pip install --user --break-system-packages mistune
+```
+
 ## Run From Source
 
 ```bash
