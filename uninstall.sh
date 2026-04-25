@@ -27,12 +27,18 @@ main() {
     remove_if_exists "$ICONS_DIR/256x256/apps/$APP_NAME.png"
     remove_if_exists "$ICONS_DIR/scalable/apps/$APP_NAME.svg"
 
+    # Remove index.theme if it was left behind by an older install.
+    # Keeping a user-local index.theme in the hicolor directory shadows the system
+    # theme and causes GTK4 icon lookup to crash for all applications.
+    remove_if_exists "$ICONS_DIR/index.theme"
+
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$APPLICATIONS_DIR" || true
     fi
 
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-        gtk-update-icon-cache "$ICONS_DIR" || true
+        # -f: force rebuild  -t: don't require a theme index file in the user dir
+        gtk-update-icon-cache -f -t "$ICONS_DIR" || true
     fi
 
     log "Uninstall complete."

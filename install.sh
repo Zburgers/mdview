@@ -28,6 +28,11 @@ copy_icon_size() {
     local src="$SCRIPT_DIR/icons/hicolor/${size}/apps/$APP_NAME.png"
     local dst_dir="$ICONS_DIR/${size}/apps"
 
+    if [[ ! -f "$src" ]]; then
+        printf '[%s] WARNING: icon source not found, skipping: %s\n' "$APP_NAME" "$src" >&2
+        return 0
+    fi
+
     mkdir -p "$dst_dir"
     install -m 0644 "$src" "$dst_dir/$APP_NAME.png"
 }
@@ -40,7 +45,8 @@ install_system_deps() {
     local -a deps
 
     if command -v dnf >/dev/null 2>&1; then
-        deps=(python3-gobject gtk4 webkit2gtk4.1)
+        # Prefer python3-mistune from dnf to avoid pip --break-system-packages
+        deps=(python3-gobject gtk4 webkit2gtk4.1 python3-mistune)
         log "Detected dnf (Fedora/RHEL family)"
         if command -v sudo >/dev/null 2>&1; then
             log "Installing system dependencies via dnf"
@@ -75,7 +81,7 @@ install_system_deps() {
         fi
         return 0
     elif command -v pacman >/dev/null 2>&1; then
-        deps=(python-gobject gtk4 webkitgtk-6.0)
+        deps=(python-gobject gtk4 webkitgtk-6.0 python-mistune)
         log "Detected pacman (Arch family)"
         if command -v sudo >/dev/null 2>&1; then
             log "Installing system dependencies via pacman"
@@ -96,7 +102,7 @@ install_system_deps() {
         return 0
     else
         log "No supported package manager detected; skipping system package install"
-        log "Install dependencies manually: GTK4 + WebKitGTK + PyGObject introspection"
+        log "Install dependencies manually: GTK4 + WebKitGTK + PyGObject introspection + mistune"
         return 0
     fi
 }
@@ -111,13 +117,13 @@ install_python_deps() {
         return 0
     fi
 
-    log "Installing Python dependency: mistune"
+    log "mistune not found via system package; trying pip (user install)"
     if python3 -m pip install --user --upgrade mistune; then
         return 0
     fi
 
-    log "pip install failed (likely PEP 668 externally managed environment)"
-    log "Retrying with --break-system-packages in user site-packages"
+    log "pip --user install failed (likely PEP 668 externally managed environment)"
+    log "Retrying with --break-system-packages (last resort)"
     python3 -m pip install --user --break-system-packages --upgrade mistune
 }
 
@@ -173,13 +179,20 @@ main() {
     copy_icon_size "64x64"
     copy_icon_size "128x128"
     copy_icon_size "256x256"
-    mkdir -p "$ICONS_DIR/scalable/apps"
-    install -m 0644 "$SCRIPT_DIR/icons/hicolor/scalable/apps/$APP_NAME.svg" "$ICONS_DIR/scalable/apps/$APP_NAME.svg"
 
-    if [[ -f "$SCRIPT_DIR/icons/hicolor/index.theme" ]]; then
-        mkdir -p "$ICONS_DIR"
-        install -m 0644 "$SCRIPT_DIR/icons/hicolor/index.theme" "$ICONS_DIR/index.theme"
+    local svg_src="$SCRIPT_DIR/icons/hicolor/scalable/apps/$APP_NAME.svg"
+    if [[ -f "$svg_src" ]]; then
+        mkdir -p "$ICONS_DIR/scalable/apps"
+        install -m 0644 "$svg_src" "$ICONS_DIR/scalable/apps/$APP_NAME.svg"
+    else
+        printf '[%s] WARNING: scalable SVG icon not found, skipping: %s\n' "$APP_NAME" "$svg_src" >&2
     fi
+
+    # NOTE: We deliberately do NOT install icons/hicolor/index.theme.
+    # The hicolor theme index lives at /usr/share/icons/hicolor/index.theme and is
+    # owned by the distribution. Installing a custom index.theme into the user-local
+    # ~/.local/share/icons/hicolor/ shadows the system theme and causes GTK4 to fail
+    # to resolve icons for ALL applications (real_choose_icon stack overflow crash).
 
     local desktop_file="$APPLICATIONS_DIR/$APP_NAME.desktop"
 
@@ -203,7 +216,8 @@ EOF
     fi
 
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-        gtk-update-icon-cache "$ICONS_DIR" || true
+        # -f: force rebuild  -t: don't require a theme index file in the user dir
+        gtk-update-icon-cache -f -t "$ICONS_DIR" || true
     fi
 
     log "Install complete. You can launch '$APP_LABEL' from Applications."
