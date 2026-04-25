@@ -5,6 +5,7 @@ APP_NAME="mdview"
 DEFAULT_BUMP="patch"
 DRY_RUN=false
 VERSION=""
+ASSET=""
 
 log() {
     printf '[%s release] %s\n' "$APP_NAME" "$*"
@@ -118,12 +119,19 @@ next_patch_version() {
     printf 'v%s.%s.%s' "$major" "$minor" "$patch"
 }
 
+cleanup() {
+    if [[ -n "$ASSET" && -f "$ASSET" ]]; then
+        rm -f "$ASSET"
+        log "Cleaned up asset: $ASSET"
+    fi
+}
+
 create_asset() {
     local version="$1"
-    local asset="${APP_NAME}-${version}.tar.gz"
+    ASSET="${APP_NAME}-${version}.tar.gz"
 
-    run_cmd git archive --format=tar.gz --output "$asset" HEAD
-    printf '%s' "$asset"
+    run_cmd git archive --format=tar.gz --output "$ASSET" HEAD
+    printf '%s' "$ASSET"
 }
 
 main() {
@@ -137,7 +145,12 @@ main() {
 
     log "Running prechecks"
     require_clean_git
-    python3 -m py_compile "markdown_editor.py"
+
+    # Compile-check all Python source files
+    python3 -m py_compile markdown_editor.py
+    python3 -m py_compile mdview_utils.py
+    log "Python syntax check passed"
+
     gh auth status >/dev/null
 
     if [[ -z "$VERSION" ]]; then
@@ -155,6 +168,9 @@ main() {
     fi
 
     log "Releasing version $VERSION"
+
+    # Register cleanup trap after ASSET path is known
+    trap cleanup EXIT
 
     local asset
     asset="$(create_asset "$VERSION")"
