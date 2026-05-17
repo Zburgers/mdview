@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "mdview",
+  "version": "0.2.0",
+  "identifier": "dev.zburgers.mdview",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "mdview",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 520,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; font-src 'self' data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb", "rpm", "nsis", "dmg", "app"],
+    "category": "Utility",
+    "shortDescription": "Tiny local Markdown reader",
+    "longDescription": "A tiny, fast, local-first Markdown reader with split source mode, Mermaid support, and print-friendly output.",
+    "copyright": "Copyright 2026 Zburgers",
+    "license": "MIT",
+    "homepage": "https://github.com/Zburgers/mdview",
+    "icon": [
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/256x256.png"
+    ],
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

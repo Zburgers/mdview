@@ -1,0 +1,24 @@
+[package]
+name = "mdview"
+version = "0.2.0"
+description = "A tiny, fast, local-first Markdown reader."
+authors = ["Zburgers"]
+license = "MIT"
+repository = "https://github.com/Zburgers/mdview"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "mdview_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.1", features = [] }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.9.1", features = [] }
+tauri-plugin-dialog = "2.4.1"
+tauri-plugin-opener = "2.5.0"
+thiserror = "2.0"

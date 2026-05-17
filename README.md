@@ -1,182 +1,164 @@
 # mdview
 
-```text
-                _       _
- _ __ ___   __| |_   _(_) _____      __
-| '_ ` _ \ / _` | | | | |/ _ \ \ /\ / /
-| | | | | | (_| | |_| | |  __/\ V  V /
-|_| |_| |_|\__,_|\__,_|_|\___| \_/\_/
-```
+`mdview` is a tiny, fast, local-first Markdown reader for developers, students,
+technical teams, and AI-agent workflows.
 
-`mdview` is a lightweight, native GTK Markdown editor with live preview.
+v2 is being rebuilt as a Tauri v2 desktop app for Linux, Windows, and macOS. The
+goal is clean Markdown viewing, optional source/split workflows, Mermaid support,
+and print-friendly PDF output without Electron or unsafe shell-script
+installation.
 
-It is designed to feel minimal and fast while staying easy to extend.
+## Current Status
 
-## Highlights
+The Tauri v2 foundation is implemented on the `tauri-v2` branch.
 
-- Native GTK 4 application (no Electron)
-- Split editor/preview layout with draggable divider
-- Live rendering using Mistune (faster, plugin-based)
-- Mermaid diagram rendering in preview (offline local bundle)
-- Dark mode toggle for preview
-- Copy rendered HTML to clipboard
-- Open/save markdown files
-- Clear editor button
-- Export preview to PDF
-- Optional sync scrolling (enabled by default)
-- File/Edit/About menus with keyboard-friendly actions
-- Local install script for desktop launcher + icons
+Included now:
 
-## Screenshot
+- Reader mode as the default experience.
+- Split mode and source-only mode.
+- Native open/save dialogs.
+- Drag-and-drop Markdown file opening.
+- GitHub-flavored Markdown rendering.
+- Sanitized preview HTML.
+- Mermaid fenced block rendering from bundled app assets.
+- Light, dark, and system theme preference.
+- Recent files persisted locally.
+- Search highlighting in the rendered document.
+- Sync scrolling in split mode.
+- Print stylesheet for system print-to-PDF.
+- Tauri Linux `.deb` and `.rpm` bundle validation.
+- GitHub Actions foundation for Linux, Windows, and macOS release artifacts.
 
-![mdview Demo](docs/Demo.png)
+## Safety Direction
 
-## Tech Stack
+The old shell installer is no longer the preferred install path. Public
+distribution should use Tauri-generated bundles and installers.
 
-- Python 3
-- PyGObject (`Gtk`, `Gdk`, `GLib`)
-- WebKitGTK (`WebKit` introspection)
-- Mistune
-- Mermaid.js (bundled locally for offline rendering)
+The v2 app should not mutate system icon themes, desktop themes, icon caches, or
+global user environment files. It should not require users to install Python,
+Mistune, GTK/WebKitGTK packages, or run `pip --break-system-packages`.
 
-## Requirements
+Rendered Markdown is sanitized by default. Raw script, frame, object, embed, and
+form content is stripped. External links are intercepted and opened only through
+the Tauri opener after user action.
 
-Core runtime:
-- Python 3
-- GTK 4 + WebKitGTK + PyGObject introspection bindings
+## Development
 
-Fedora/RHEL (dnf):
+Prerequisites:
 
-```bash
-sudo dnf install -y python3-gobject gtk4 webkit2gtk4.1 python3-pip
-```
+- Node.js 22+
+- pnpm 10+
+- Rust stable
+- Tauri v2 Linux dependencies on Linux
 
-Debian/Ubuntu (apt):
-
-```bash
-sudo apt-get update
-sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 python3-pip
-```
-
-(On some distros/releases, WebKit package name may be `gir1.2-webkit2-4.1`.)
-
-Arch (pacman):
+Install dependencies:
 
 ```bash
-sudo pacman -S --needed python python-gobject gtk4 webkitgtk-6.0 python-pip
+pnpm install
 ```
 
-openSUSE (zypper):
+Run the desktop app in development:
 
 ```bash
-sudo zypper --non-interactive install python3-gobject-Gdk gtk4 typelib-1_0-WebKit-6_0 python3-pip
+pnpm tauri dev
 ```
 
-Python package:
+Run frontend-only development:
 
 ```bash
-python3 -m pip install --user mistune
+pnpm dev
 ```
 
-If your distro Python is externally managed (PEP 668), use:
+## Validation
 
 ```bash
-python3 -m pip install --user --break-system-packages mistune
+pnpm test
+pnpm typecheck
+pnpm build
+cd src-tauri
+cargo fmt --check
+cargo check
+cargo clippy -- -D warnings
 ```
 
-## Run From Source
+## Packaging
+
+Build the Tauri app:
 
 ```bash
-python3 markdown_editor.py
+pnpm tauri build
 ```
 
-## Mermaid Support
-
-`mdview` automatically renders fenced Mermaid blocks in the preview pane:
-
-~~~markdown
-```mermaid
-flowchart TD
-  A[Start] --> B[Render diagram]
-```
-~~~
-
-Security posture for preview content:
-- Preview is loaded with a restrictive Content Security Policy.
-- No remote network requests are allowed from preview content.
-- Navigation/new-window actions from preview links are blocked.
-- Mermaid is loaded from a local bundled file (`assets/vendor/mermaid.min.js`).
-
-## Install (Desktop Integration)
-
-Install for the current user (recommended):
+Build Linux `.deb` and `.rpm` locally:
 
 ```bash
-./install.sh
+pnpm tauri build --bundles deb,rpm
 ```
 
-What it installs:
+Linux AppImage is configured, but local AppImage generation can be host-sensitive.
+On the Fedora validation host, `linuxdeploy` failed while stripping libraries
+containing `.relr.dyn` sections. Ubuntu GitHub Actions is the intended first
+AppImage build path.
 
-- App code: `~/.local/share/mdview/markdown_editor.py`
-- App helper module: `~/.local/share/mdview/mdview_utils.py`
-- Desktop file: `~/.local/share/applications/mdview.desktop`
-- Icons: `~/.local/share/icons/hicolor/.../mdview.*`
+Windows NSIS and macOS `.app`/`.dmg` builds are configured for native CI runners.
 
-After install, launch **mdview** from your Applications menu.
+## Supported Platforms
 
-### Installer options
+Target platforms:
 
-Skip dependency installation:
+- Linux
+- Windows
+- macOS
 
-```bash
-./install.sh --no-deps
-```
+Current local validation has produced Linux `.deb` and `.rpm` artifacts. Windows
+and macOS packaging should be validated by GitHub Actions on their native runners.
 
-## Uninstall
+## Legacy Python GTK App
 
-```bash
-./uninstall.sh
-```
+The original Python GTK/WebKitGTK app remains in the repository as the legacy
+reference implementation:
 
-## Release
+- `markdown_editor.py`
+- `mdview_utils.py`
+- `install.sh`
+- `uninstall.sh`
+- `release.sh`
+- `assets/vendor/mermaid.min.js`
 
-Create and publish a GitHub release:
+It provided split editing, live preview, Mermaid rendering, copy HTML, export PDF,
+dark preview mode, sync scrolling, and shell-script desktop integration.
 
-```bash
-./release.sh
-```
-
-What it does:
-- verifies clean git state
-- runs `python3 -m py_compile markdown_editor.py`
-- auto bumps patch version from latest `vX.Y.Z` tag
-- creates annotated tag and pushes it
-- creates GitHub release with generated notes
-- uploads `mdview-vX.Y.Z.tar.gz` as a release asset
-
-Useful options:
-
-```bash
-./release.sh --dry-run
-./release.sh --version v1.2.0
-```
+That implementation is no longer the preferred public install path because it is
+Linux-focused and depends on distro packages, Python packages, and shell scripts
+that can affect desktop integration files.
 
 ## Project Layout
 
-- `markdown_editor.py` - main GTK app
-- `install.sh` - user-local installer
-- `uninstall.sh` - remove installed files
-- `release.sh` - version/tag/release automation
-- `icons/hicolor/` - app icon assets
-- `mdview.desktop` - development desktop entry template
+- `src/` - React/Vite TypeScript frontend.
+- `src/lib/` - Markdown, link, and Tauri helper modules.
+- `src/components/` - Viewer UI components.
+- `src-tauri/` - Tauri v2 Rust backend, configuration, icons, and capabilities.
+- `.github/workflows/release-build.yml` - validation and release artifact CI.
+- `docs/migration/tauri-v2.md` - migration notes.
+- `docs/wiki/` - GitHub Wiki fallback content.
+- `markdown_editor.py` and `mdview_utils.py` - legacy Python GTK app.
 
 ## Roadmap
 
-- Packaging for RPM/Flatpak
- - Unsaved-changes indicator in the window title and confirm dialog for destructive actions (Open/Clear)
- - Add an automated CI job that runs py_compile and unit tests on push
- - Add an integration test to exercise open/save and export workflows
+- v0.1: viewer foundation, native open/save, recent files, theme persistence.
+- v0.2: split/source workflows, sync scroll polish, source editing ergonomics.
+- v0.3: export polish, AppImage CI validation, release artifact naming.
+- v1.0: hardened local image policy, file associations, signed artifacts where
+  practical, public release documentation.
+
+## Known Limitations
+
+- Raw HTML is not trusted by default.
+- Local images are scoped to opened-document workflows and still need additional
+  hardening before a public release.
+- AppImage bundling should be validated in Ubuntu CI.
+- Windows and macOS installers need CI validation on native runners.
 
 ## License
 
-MIT (or your preferred license)
+MIT
