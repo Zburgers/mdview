@@ -1,0 +1,7 @@
+{
+  "result": "PASS",
+  "reasons": [
+    "no blocking findings detected"
+  ],
+  "blocking_finding_ids": []
+}

@@ -1,0 +1,11 @@
+name: graphify
+description: Refresh or summarize bounded Graphify repo context without treating graph output as proof.
+input_schema:
+  properties:
+    refresh:
+      type: boolean
+      description: Refresh graphify output before returning the report path.
+  required: []
+implementation:
+  script: graphify.mjs
+  runtime: node

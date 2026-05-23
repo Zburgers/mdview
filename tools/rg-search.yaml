@@ -1,0 +1,14 @@
+name: rg-search
+description: Run bounded ripgrep searches for targeted symbols, guards, and tests.
+input_schema:
+  properties:
+    query:
+      type: string
+      description: Ripgrep pattern scoped to the current audit question.
+    path:
+      type: string
+      description: Optional repo-relative path to narrow the search.
+  required: [query]
+implementation:
+  script: rg-search.mjs
+  runtime: node

@@ -1,0 +1,14 @@
+name: git-diff
+description: Produce a bounded diff summary for changed files and limited hunks.
+input_schema:
+  properties:
+    base:
+      type: string
+      description: Git base revision for the bounded diff.
+    head:
+      type: string
+      description: Git head revision for the bounded diff.
+  required: []
+implementation:
+  script: git-diff.mjs
+  runtime: node

@@ -1,0 +1,13 @@
+name: adversarial-audit
+description: Report-first Red Team / Filter / Blue Team pipeline
+steps:
+  - skill: orchestrate-audit
+    prompt: Keep the audit scope bounded, initialize the report-first flow, and choose the next skill.
+  - skill: red-team-audit
+    prompt: Produce plausible findings for the scoped change surface with evidence and file references.
+  - skill: verify-finding
+    prompt: Verify or reject each finding using code evidence, tests, or reproducible reasoning.
+  - skill: blue-team-remediation
+    prompt: Turn only verified or human-review-worthy findings into the smallest useful remediation guidance.
+  - skill: generate-ship-report
+    prompt: Summarize the audit outcome as PASS, WARN, or FAIL with explicit reasons and next steps.

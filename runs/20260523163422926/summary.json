@@ -1,0 +1,18 @@
+{
+  "policy_result": "PASS",
+  "confirmed": 0,
+  "rejected_false_positive": 0,
+  "needs_human_review": 0,
+  "insufficient_evidence": 0,
+  "duplicate": 0,
+  "out_of_scope": 0,
+  "verified_findings": [],
+  "blocking_finding_ids": [],
+  "policy": {
+    "result": "PASS",
+    "reasons": [
+      "no blocking findings detected"
+    ],
+    "blocking_finding_ids": []
+  }
+}

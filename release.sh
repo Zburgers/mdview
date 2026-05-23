@@ -76,6 +76,18 @@ require_cmd() {
     command -v "$cmd" >/dev/null 2>&1 || fail "Missing command: $cmd"
 }
 
+run_adr_guard() {
+    local script_path="scripts/adr_guard.sh"
+    [[ -x "$script_path" ]] || fail "Missing executable ADR guard: $script_path"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        printf '[dry-run] %s --mode release\n' "$script_path"
+        return 0
+    fi
+
+    "$script_path" --mode release
+}
+
 require_clean_git() {
     local status
     status="$(git status --porcelain)"
@@ -144,6 +156,7 @@ main() {
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "Not inside a git repository"
 
     log "Running prechecks"
+    run_adr_guard
     require_clean_git
 
     # Compile-check all Python source files

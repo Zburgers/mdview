@@ -1,0 +1,1 @@
+No Blue Team remediation handoff was emitted.

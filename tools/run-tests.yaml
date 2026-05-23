@@ -1,0 +1,11 @@
+name: run-tests
+description: Run bounded verification tests for the current scope.
+input_schema:
+  properties:
+    files:
+      type: array
+      description: Targeted test file paths for the current scope.
+  required: [files]
+implementation:
+  script: run-tests.mjs
+  runtime: node
