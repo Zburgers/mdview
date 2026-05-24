@@ -1,0 +1,14 @@
+name: list-files
+description: List files recursively matching a glob pattern. Use this to verify file existence before citing a file path in a finding.
+input_schema:
+  properties:
+    pattern:
+      type: string
+      description: Glob pattern to match files (e.g. "**/*.rs", "src/**", "tests/**").
+    path:
+      type: string
+      description: Optional repo-relative directory to scope the search.
+  required: [pattern]
+implementation:
+  script: list-files.mjs
+  runtime: node

@@ -1,0 +1,11 @@
+name: read-file
+description: Read a file inside the repo, bounded to 200 lines. Use this to verify code patterns referenced in findings before citing them.
+input_schema:
+  properties:
+    path:
+      type: string
+      description: Repo-relative file path to read.
+  required: [path]
+implementation:
+  script: read-file.mjs
+  runtime: node
