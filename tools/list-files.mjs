@@ -1,38 +1,52 @@
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+const EXCLUDE_DIRS = new Set(["node_modules", ".git", "target", "__pycache__", "dist", ".ruff_cache"]);
+
 const input = await readInput();
 const pattern = typeof input.pattern === "string" ? input.pattern : "";
-const searchPath = safePath(input.path);
+const rawPath = typeof input.path === "string" ? input.path : null;
 
 if (!pattern) throw new Error("pattern is required");
 
-const baseDir = searchPath || ".";
 const results = [];
 
-walk(baseDir, "");
+walk(".");
+
+const filterPrefix = pattern.replace(/\*\*/g, "").replace(/\*/g, "").replace(/^\//, "");
 
 const matched = results
-  .filter((f) => f.includes(pattern.replace(/\*/g, "").replace("?", "")))
+  .filter((f) => !EXCLUDE_DIRS.has(f.split("/")[0]))
+  .filter((f) => {
+    if (pattern === "*") return true;
+    if (f === pattern) return true;
+    if (f.includes(filterPrefix)) return true;
+    if (f.endsWith(pattern)) return true;
+    return false;
+  })
+  .filter((f) => {
+    if (!rawPath) return true;
+    const prefix = rawPath.endsWith("/") ? rawPath : rawPath + "/";
+    return f.startsWith(prefix);
+  })
   .sort();
 
-writeText(matched.slice(0, 200).join("\n") || "(no matching files)");
+writeText(matched.length > 0 ? matched.slice(0, 200).join("\n") : "(no matching files)");
 
-function walk(root, relative) {
+function walk(relative) {
   let entries;
   try {
-    entries = readdirSync(join(root, relative));
+    entries = readdirSync(join(".", relative));
   } catch {
     return;
   }
   for (const entry of entries) {
-    const relPath = relative ? `${relative}/${entry}` : entry;
-    const fullPath = join(root, relPath);
+    const relPath = relative === "." ? entry : `${relative}/${entry}`;
     try {
-      const stats = statSync(fullPath);
+      const stats = statSync(join(".", relPath));
       if (stats.isDirectory()) {
-        results.push(relPath + "/");
-        walk(root, relPath);
+        if (EXCLUDE_DIRS.has(entry)) continue;
+        walk(relPath);
       } else {
         results.push(relPath);
       }
@@ -40,12 +54,6 @@ function walk(root, relative) {
       // skip unreadable
     }
   }
-}
-
-function safePath(value) {
-  if (typeof value !== "string" || value.startsWith("/") || value.includes(".."))
-    return undefined;
-  return value;
 }
 
 async function readInput() {
