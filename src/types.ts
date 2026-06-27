@@ -3,6 +3,7 @@ export type ThemePreference = "system" | "light" | "dark";
 export type ViewMode = "reader" | "split" | "source";
 
 export type MarkdownDocument = {
+  isOpen: boolean;
   path: string | null;
   name: string;
   markdown: string;

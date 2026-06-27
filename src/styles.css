@@ -378,6 +378,12 @@ button {
   font-size: 2rem;
 }
 
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .empty-state button {
   width: max-content;
   padding: 9px 12px;

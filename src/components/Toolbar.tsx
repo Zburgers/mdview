@@ -2,6 +2,7 @@ import {
   Columns2,
   Download,
   FileCode2,
+  FilePlus2,
   FileText,
   FolderOpen,
   Moon,
@@ -20,6 +21,7 @@ type ToolbarProps = {
   theme: ThemePreference;
   query: string;
   syncScroll: boolean;
+  onNewFile: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
@@ -48,6 +50,9 @@ export function Toolbar(props: ToolbarProps) {
       </div>
 
       <div className="toolbar-actions">
+        <button className="icon-button" title="New Markdown File" onClick={props.onNewFile}>
+          <FilePlus2 size={18} />
+        </button>
         <button className="icon-button" title="Open Markdown File" onClick={props.onOpen}>
           <FolderOpen size={18} />
         </button>

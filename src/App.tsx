@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
-import { defaultSettings, emptyMarkdown } from "./lib/defaults";
+import { defaultSettings } from "./lib/defaults";
 import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "./lib/markdown";
 import {
   loadSettings,
@@ -16,6 +16,7 @@ import type { AppSettings, MarkdownDocument, ThemePreference, ViewMode } from ".
 import "./styles.css";
 
 const initialDocument: MarkdownDocument = {
+  isOpen: false,
   path: null,
   name: "Untitled",
   markdown: "",
@@ -33,7 +34,7 @@ export default function App() {
   const previewRef = useRef<HTMLDivElement>(null);
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
-  const hasDocument = documentState.markdown.length > 0 || documentState.path !== null;
+  const hasDocument = documentState.isOpen;
 
   useEffect(() => {
     loadSettings()
@@ -70,12 +71,13 @@ export default function App() {
     };
   }, []);
 
-  const visibleMarkdown = hasDocument ? documentState.markdown : emptyMarkdown;
+  const emptyState = useMemo(() => !hasDocument, [hasDocument]);
 
-  const emptyState = useMemo(
-    () => !hasDocument && settings.viewMode === "reader",
-    [hasDocument, settings.viewMode]
-  );
+  useEffect(() => {
+    if (settings.viewMode === "source" && hasDocument) {
+      sourceRef.current?.focus();
+    }
+  }, [hasDocument, settings.viewMode]);
 
   async function openPath(path: string) {
     if (!isMarkdownLikePath(path)) {
@@ -87,6 +89,7 @@ export default function App() {
       const response = await readMarkdownFile(path);
       const normalized = normalizeMarkdownText(response.contents);
       setDocumentState({
+        isOpen: true,
         path: response.path,
         name: getMarkdownFileName(response.path),
         markdown: normalized.text,
@@ -104,6 +107,20 @@ export default function App() {
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not open file.");
     }
+  }
+
+  function handleNewFile() {
+    setDocumentState({
+      isOpen: true,
+      path: null,
+      name: "Untitled",
+      markdown: "",
+      warning: null,
+      dirty: false
+    });
+    setSearchQuery("");
+    setStatus(null);
+    updateSettings({ viewMode: "source" });
   }
 
   async function handleOpen() {
@@ -167,6 +184,7 @@ export default function App() {
         theme={settings.theme}
         query={searchQuery}
         syncScroll={settings.syncScroll}
+        onNewFile={handleNewFile}
         onOpen={handleOpen}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
@@ -177,11 +195,31 @@ export default function App() {
         onSyncScrollChange={(syncScroll) => updateSettings({ syncScroll })}
       />
 
-      {status ? <div className="status-bar">{status}</div> : null}
-      {documentState.warning ? <div className="status-bar warning">{documentState.warning}</div> : null}
+      <div className="status-stack">
+        {status ? <div className="status-bar">{status}</div> : null}
+        {documentState.warning ? <div className="status-bar warning">{documentState.warning}</div> : null}
+      </div>
 
       <section className={`workspace mode-${settings.viewMode}`} data-empty={emptyState}>
-        {(settings.viewMode === "split" || settings.viewMode === "source") && (
+        {emptyState ? (
+          <div className="preview-scroll">
+            <div className="empty-state">
+              <h1>Open Markdown File</h1>
+              <p>Drag and drop a Markdown file here.</p>
+              <div className="empty-actions">
+                <button onClick={handleOpen}>Open Markdown File</button>
+                <button onClick={handleNewFile}>New Markdown File</button>
+              </div>
+              <RecentFiles
+                files={settings.recentFiles}
+                onOpen={openPath}
+                onClear={() => updateSettings({ recentFiles: [] })}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {!emptyState && (settings.viewMode === "split" || settings.viewMode === "source") && (
           <textarea
             ref={sourceRef}
             className="source-pane"
@@ -189,37 +227,25 @@ export default function App() {
             placeholder="Markdown source"
             spellCheck={false}
             onScroll={onSourceScroll}
-            onChange={(event) =>
+            onChange={(event) => {
+              const markdown = event.currentTarget.value;
               setDocumentState((current) => ({
                 ...current,
-                markdown: event.currentTarget.value,
+                markdown,
                 dirty: true
-              }))
-            }
+              }));
+            }}
           />
         )}
 
-        {(settings.viewMode === "reader" || settings.viewMode === "split") && (
+        {!emptyState && (settings.viewMode === "reader" || settings.viewMode === "split") && (
           <div className="preview-scroll" ref={previewRef}>
-            {emptyState ? (
-              <div className="empty-state">
-                <h1>Open Markdown File</h1>
-                <p>Drag and drop a Markdown file here.</p>
-                <button onClick={handleOpen}>Open Markdown File</button>
-                <RecentFiles
-                  files={settings.recentFiles}
-                  onOpen={openPath}
-                  onClear={() => updateSettings({ recentFiles: [] })}
-                />
-              </div>
-            ) : (
-              <Preview
-                markdown={visibleMarkdown}
-                filePath={documentState.path}
-                theme={actualTheme}
-                searchQuery={searchQuery}
-              />
-            )}
+            <Preview
+              markdown={documentState.markdown}
+              filePath={documentState.path}
+              theme={actualTheme}
+              searchQuery={searchQuery}
+            />
           </div>
         )}
       </section>

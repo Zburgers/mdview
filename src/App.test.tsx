@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { defaultSettings } from "./lib/defaults";
 import { loadSettings } from "./lib/tauri";
@@ -31,6 +31,10 @@ const matchMediaMock = vi.fn(() => ({
   removeEventListener: vi.fn()
 }));
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("App desktop layout", () => {
   beforeEach(() => {
     vi.mocked(loadSettings).mockResolvedValue({
@@ -54,14 +58,47 @@ describe("App desktop layout", () => {
     const shell = container.querySelector(".app-shell");
     const toolbar = container.querySelector(".toolbar");
     const workspace = container.querySelector(".workspace");
-    const sourcePane = screen.getByPlaceholderText("Markdown source");
     const previewScroll = container.querySelector(".preview-scroll");
+    const statusStack = container.querySelector(".status-stack");
 
     expect(shell?.firstElementChild).toBe(toolbar);
+    expect(toolbar?.nextElementSibling).toBe(statusStack);
+    expect(statusStack?.nextElementSibling).toBe(workspace);
     expect(toolbar?.closest(".workspace")).toBeNull();
-    expect(sourcePane.closest(".workspace")).toBe(workspace);
     expect(previewScroll?.closest(".workspace")).toBe(workspace);
-    expect(sourcePane).toHaveClass("source-pane");
     expect(previewScroll).toHaveClass("preview-scroll");
+  });
+
+  it.each(["reader", "split", "source"] as const)(
+    "shows the open-file empty state in %s mode when no document is open",
+    async (viewMode) => {
+      vi.mocked(loadSettings).mockResolvedValue({
+        ...defaultSettings,
+        viewMode,
+        syncScroll: false
+      });
+
+      render(<App />);
+
+      expect(await screen.findByRole("heading", { name: "Open Markdown File" })).toBeInTheDocument();
+      expect(screen.getByText("Drag and drop a Markdown file here.")).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Markdown source")).not.toBeInTheDocument();
+    }
+  );
+
+  it("creates an empty source draft that stays editable when empty", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+
+    const sourcePane = await screen.findByPlaceholderText("Markdown source");
+    expect(sourcePane).toHaveValue("");
+
+    fireEvent.change(sourcePane, { target: { value: "# Draft" } });
+    expect(sourcePane).toHaveValue("# Draft");
+
+    fireEvent.change(sourcePane, { target: { value: "" } });
+    expect(sourcePane).toHaveValue("");
+    expect(screen.queryByRole("heading", { name: "Open Markdown File" })).not.toBeInTheDocument();
   });
 });
