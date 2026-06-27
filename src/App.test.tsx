@@ -2,10 +2,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { defaultSettings } from "./lib/defaults";
-import { loadSettings } from "./lib/tauri";
+import { loadSettings, openMarkdownDialog, readMarkdownFile, writeMarkdownFile } from "./lib/tauri";
+
+const destroyMock = vi.fn(() => Promise.resolve());
+const onCloseRequestedMock = vi.fn();
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => undefined))
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({
+    destroy: destroyMock,
+    onCloseRequested: onCloseRequestedMock
+  }))
 }));
 
 vi.mock("./components/Preview", () => ({
@@ -42,6 +52,15 @@ describe("App desktop layout", () => {
       viewMode: "split",
       syncScroll: false
     });
+    vi.mocked(openMarkdownDialog).mockResolvedValue(null);
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/tmp/example.md",
+      contents: "# Example",
+      lossy: false
+    });
+    vi.mocked(writeMarkdownFile).mockResolvedValue();
+    onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
+    destroyMock.mockClear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: matchMediaMock
@@ -100,5 +119,50 @@ describe("App desktop layout", () => {
     fireEvent.change(sourcePane, { target: { value: "" } });
     expect(sourcePane).toHaveValue("");
     expect(screen.queryByRole("heading", { name: "Open Markdown File" })).not.toBeInTheDocument();
+  });
+
+  it("prompts before discarding unsaved changes when opening another file", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/tmp/second.md",
+      contents: "# Second",
+      lossy: false
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+
+    expect(await screen.findByRole("dialog", { name: "Save changes?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Don't Save" }));
+
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Second");
+    expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
+  });
+
+  it("cancels closing the window when the user cancels the unsaved-changes dialog", async () => {
+    let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+    onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
+      closeHandler = handler;
+      return Promise.resolve(() => undefined);
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
+
+    const preventDefault = vi.fn();
+    await closeHandler?.({ preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("dialog", { name: "Save changes?" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(destroyMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
   });
 });

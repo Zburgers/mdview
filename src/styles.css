@@ -65,6 +65,66 @@ button {
   overflow: hidden;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, #000000 38%, transparent);
+  z-index: 10;
+}
+
+.confirm-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+}
+
+.confirm-dialog h2,
+.confirm-dialog p {
+  margin: 0;
+}
+
+.confirm-dialog p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.confirm-actions button {
+  min-width: 102px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 35%);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.confirm-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.confirm-actions button:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto auto minmax(120px, 240px) auto auto auto;

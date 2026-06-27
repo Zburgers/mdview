@@ -25,6 +25,7 @@ Included now:
 - Recent files persisted locally.
 - Search highlighting in the rendered document.
 - Sync scrolling in split mode.
+- Unsaved-change protection for new/open/recent-file/drag-and-drop/close flows.
 - Print stylesheet for system print-to-PDF.
 - Tauri Linux `.deb` and `.rpm` bundle validation.
 - GitHub Actions foundation for Linux, Windows, and macOS release artifacts.
@@ -92,15 +93,12 @@ pnpm tauri build
 Build Linux `.deb` and `.rpm` locally:
 
 ```bash
-pnpm tauri build --bundles deb,rpm
+./scripts/build-linux-bundles.sh
 ```
 
-Linux AppImage is configured, but local AppImage generation can be host-sensitive.
-On the Fedora validation host, `linuxdeploy` failed while stripping libraries
-containing `.relr.dyn` sections. Ubuntu GitHub Actions is the intended first
-AppImage build path.
-
-Windows NSIS and macOS `.app`/`.dmg` builds are configured for native CI runners.
+Windows NSIS and macOS `.app`/`.dmg` builds should be produced on native runners.
+Tauri's current guidance is still platform-native packaging for Windows and macOS,
+with Linux able to build Linux bundles directly.
 
 ## Supported Platforms
 
@@ -110,8 +108,90 @@ Target platforms:
 - Windows
 - macOS
 
-Current local validation has produced Linux `.deb` and `.rpm` artifacts. Windows
-and macOS packaging should be validated by GitHub Actions on their native runners.
+Bundle targets configured in `src-tauri/tauri.conf.json`:
+
+- Linux: AppImage, `.deb`, `.rpm`
+- Windows: NSIS installer
+- macOS: `.app`, `.dmg`
+
+Current local validation is expected to produce Linux bundles on Linux. Windows
+and macOS installers should be validated by GitHub Actions on native runners.
+
+## Install and Test Bundles
+
+### Linux
+
+Build locally:
+
+```bash
+pnpm install
+./scripts/build-linux-bundles.sh
+```
+
+Artifacts are written under `src-tauri/target/release/bundle/`:
+
+- `appimage/*.AppImage`
+- `deb/*.deb`
+- `rpm/*.rpm`
+
+Install examples:
+
+```bash
+sudo dpkg -i src-tauri/target/release/bundle/deb/*.deb
+sudo rpm -i src-tauri/target/release/bundle/rpm/*.rpm
+chmod +x src-tauri/target/release/bundle/appimage/*.AppImage
+./src-tauri/target/release/bundle/appimage/*.AppImage
+```
+
+### Windows
+
+Build on Windows:
+
+```powershell
+pnpm install
+pnpm tauri build --bundles nsis
+```
+
+Artifact:
+
+- `src-tauri/target/release/bundle/nsis/*-setup.exe`
+
+The installer is configured to use the embedded WebView2 bootstrapper, which
+keeps the bundle size moderate while covering machines that do not already have
+WebView2 installed.
+
+### macOS
+
+Build on macOS:
+
+```bash
+pnpm install
+pnpm tauri build --bundles app,dmg
+```
+
+Artifacts:
+
+- `src-tauri/target/release/bundle/macos/*.app`
+- `src-tauri/target/release/bundle/dmg/*.dmg`
+
+Unsigned local builds may require opening the app via Finder context menu on the
+first launch, or removing quarantine attributes during local testing.
+
+## CI Artifact Builds
+
+`.github/workflows/release-build.yml` validates the app on Ubuntu, then builds:
+
+- Linux: AppImage, `.deb`, `.rpm`
+- Windows: NSIS
+- macOS: `.app`, `.dmg`
+
+The Linux build path uses [`scripts/build-linux-bundles.sh`](scripts/build-linux-bundles.sh),
+which first builds `.deb` and `.rpm`, then falls back to a patched AppDir plus
+manual `appimagetool` packaging when `linuxdeploy` rejects the generated
+desktop entry.
+
+After pushing the branch, download the artifacts from the workflow run and test
+them natively on each OS.
 
 ## Legacy Python GTK App
 
@@ -156,8 +236,7 @@ that can affect desktop integration files.
 - Raw HTML is not trusted by default.
 - Local images are scoped to opened-document workflows and still need additional
   hardening before a public release.
-- AppImage bundling should be validated in Ubuntu CI.
-- Windows and macOS installers need CI validation on native runners.
+- Windows and macOS artifacts require native host validation and are unsigned by default.
 
 ## License
 

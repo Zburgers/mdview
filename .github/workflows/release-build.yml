@@ -50,7 +50,7 @@ jobs:
         include:
           - platform: linux
             os: ubuntu-22.04
-            bundles: appimage,deb
+            bundles: appimage,deb,rpm
           - platform: windows
             os: windows-latest
             bundles: nsis
@@ -78,7 +78,10 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: pnpm install --frozen-lockfile
+      - run: ./scripts/build-linux-bundles.sh
+        if: matrix.platform == 'linux'
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+        if: matrix.platform != 'linux'
       - uses: actions/upload-artifact@v4
         with:
           name: mdview-${{ matrix.platform }}

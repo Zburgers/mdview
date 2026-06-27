@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "enableGTKAppId": true,
     "windows": [
       {
         "title": "mdview",
@@ -27,7 +28,24 @@
   "bundle": {
     "active": true,
     "targets": ["appimage", "deb", "rpm", "nsis", "dmg", "app"],
-    "category": "Utility",
+    "publisher": "Zburgers",
+    "category": "Productivity",
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdown", "mkd"],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "mimeType": "text/markdown",
+        "role": "Editor"
+      },
+      {
+        "ext": ["txt", "text"],
+        "name": "Plain Text Document",
+        "description": "Plain text document",
+        "mimeType": "text/plain",
+        "role": "Editor"
+      }
+    ],
     "shortDescription": "Tiny local Markdown reader",
     "longDescription": "A tiny, fast, local-first Markdown reader with split source mode, Mermaid support, and print-friendly output.",
     "copyright": "Copyright 2026 Zburgers",
@@ -39,11 +57,28 @@
       "icons/256x256.png"
     ],
     "linux": {
+      "appimage": {
+        "files": {
+          "usr/share/metainfo/dev.zburgers.mdview.appdata.xml": "packaging/linux/dev.zburgers.mdview.appdata.xml"
+        }
+      },
       "deb": {
-        "depends": []
+        "depends": [],
+        "files": {
+          "usr/share/metainfo/dev.zburgers.mdview.appdata.xml": "packaging/linux/dev.zburgers.mdview.appdata.xml"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/metainfo/dev.zburgers.mdview.appdata.xml": "packaging/linux/dev.zburgers.mdview.appdata.xml"
+        }
       }
     },
     "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
       "nsis": {
         "displayLanguageSelector": true
       }

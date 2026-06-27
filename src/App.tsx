@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
@@ -24,14 +25,22 @@ const initialDocument: MarkdownDocument = {
   dirty: false
 };
 
+type PendingAction = {
+  label: string;
+  run: () => Promise<void>;
+};
+
 export default function App() {
   const [documentState, setDocumentState] = useState<MarkdownDocument>(initialDocument);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [systemDark, setSystemDark] = useState(false);
+  const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
+  const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const pendingActionRef = useRef<PendingAction | null>(null);
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
   const hasDocument = documentState.isOpen;
@@ -63,13 +72,45 @@ export default function App() {
     const unlistenPromise = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
       const candidate = event.payload.paths.find(isMarkdownLikePath);
       if (candidate) {
-        void openPath(candidate);
+        void guardDocumentTransition(`open ${getMarkdownFileName(candidate)}`, () => openPath(candidate));
       }
     });
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
     };
   }, []);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    const unlistenPromise = appWindow.onCloseRequested(async (event) => {
+      if (!documentState.dirty) {
+        return;
+      }
+
+      event.preventDefault();
+      await queuePendingAction("close this window", async () => {
+        await appWindow.destroy();
+      });
+    });
+
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [documentState.dirty]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!documentState.dirty) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [documentState.dirty]);
 
   const emptyState = useMemo(() => !hasDocument, [hasDocument]);
 
@@ -103,13 +144,14 @@ export default function App() {
           10
         )
       }));
+      setSearchQuery("");
       setStatus(null);
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not open file.");
     }
   }
 
-  function handleNewFile() {
+  function resetToNewFile() {
     setDocumentState({
       isOpen: true,
       path: null,
@@ -123,38 +165,89 @@ export default function App() {
     updateSettings({ viewMode: "source" });
   }
 
+  async function queuePendingAction(label: string, run: () => Promise<void>) {
+    pendingActionRef.current = { label, run };
+    setPendingActionLabel(label);
+    setIsResolvingPendingAction(false);
+  }
+
+  function clearPendingAction() {
+    pendingActionRef.current = null;
+    setPendingActionLabel(null);
+    setIsResolvingPendingAction(false);
+  }
+
+  async function guardDocumentTransition(label: string, run: () => Promise<void>) {
+    if (!documentState.dirty) {
+      await run();
+      return;
+    }
+
+    await queuePendingAction(label, run);
+  }
+
+  async function runPendingAction() {
+    const pending = pendingActionRef.current;
+    if (!pending) {
+      return;
+    }
+
+    clearPendingAction();
+    await pending.run();
+  }
+
+  function handleNewFile() {
+    void guardDocumentTransition("create a new file", async () => {
+      resetToNewFile();
+    });
+  }
+
   async function handleOpen() {
     const selected = await openMarkdownDialog();
     if (selected) {
-      await openPath(selected);
+      await guardDocumentTransition(`open ${getMarkdownFileName(selected)}`, async () => {
+        await openPath(selected);
+      });
     }
   }
 
-  async function handleSave() {
-    if (documentState.path) {
-      await writeMarkdownFile(documentState.path, documentState.markdown);
-      setDocumentState((current) => ({ ...current, dirty: false }));
-      setStatus("Saved.");
-      return;
-    }
+  async function handleSave(): Promise<boolean> {
+    try {
+      if (documentState.path) {
+        await writeMarkdownFile(documentState.path, documentState.markdown);
+        setDocumentState((current) => ({ ...current, dirty: false }));
+        setStatus("Saved.");
+        return true;
+      }
 
-    await handleSaveAs();
+      return await handleSaveAs();
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : "Could not save file.");
+      return false;
+    }
   }
 
-  async function handleSaveAs() {
+  async function handleSaveAs(): Promise<boolean> {
     const selected = await saveMarkdownDialog(documentState.path);
     if (!selected) {
-      return;
+      setStatus("Save canceled.");
+      return false;
     }
 
-    await writeMarkdownFile(selected, documentState.markdown);
-    setDocumentState((current) => ({
-      ...current,
-      path: selected,
-      name: getMarkdownFileName(selected),
-      dirty: false
-    }));
-    setStatus("Saved.");
+    try {
+      await writeMarkdownFile(selected, documentState.markdown);
+      setDocumentState((current) => ({
+        ...current,
+        path: selected,
+        name: getMarkdownFileName(selected),
+        dirty: false
+      }));
+      setStatus("Saved.");
+      return true;
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : "Could not save file.");
+      return false;
+    }
   }
 
   function updateSettings(update: Partial<AppSettings>) {
@@ -173,6 +266,16 @@ export default function App() {
       return;
     }
     preview.scrollTop = (source.scrollTop / sourceMax) * previewMax;
+  }
+
+  async function handleSaveBeforeContinuing() {
+    setIsResolvingPendingAction(true);
+    const saved = await handleSave();
+    if (saved) {
+      await runPendingAction();
+    } else {
+      clearPendingAction();
+    }
   }
 
   return (
@@ -212,7 +315,9 @@ export default function App() {
               </div>
               <RecentFiles
                 files={settings.recentFiles}
-                onOpen={openPath}
+                onOpen={(path) => {
+                  void guardDocumentTransition(`open ${getMarkdownFileName(path)}`, () => openPath(path));
+                }}
                 onClear={() => updateSettings({ recentFiles: [] })}
               />
             </div>
@@ -249,6 +354,30 @@ export default function App() {
           </div>
         )}
       </section>
+
+      {pendingActionLabel ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unsaved-changes-title"
+            aria-describedby="unsaved-changes-description"
+          >
+            <h2 id="unsaved-changes-title">Save changes?</h2>
+            <p id="unsaved-changes-description">
+              Your current file has unsaved changes. Save them before you {pendingActionLabel}?
+            </p>
+            <div className="confirm-actions">
+              <button onClick={clearPendingAction}>Cancel</button>
+              <button onClick={() => void runPendingAction()}>Don&apos;t Save</button>
+              <button className="primary" disabled={isResolvingPendingAction} onClick={() => void handleSaveBeforeContinuing()}>
+                {isResolvingPendingAction ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
