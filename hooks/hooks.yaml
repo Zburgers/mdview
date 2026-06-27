@@ -1,3 +1,0 @@
-version: 1
-hooks:
-  pre_tool_use: []
