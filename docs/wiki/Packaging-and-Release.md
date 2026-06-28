@@ -33,7 +33,7 @@ pnpm tauri build --bundles app,dmg
 Release command:
 
 ```bash
-./release.sh --version v1.0.1
+./release.sh --version v1.0.2
 ```
 
 The release script creates and pushes the annotated tag only. The CI release

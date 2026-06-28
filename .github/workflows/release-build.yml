@@ -133,5 +133,4 @@ jobs:
             release-assets/**/*.deb
             release-assets/**/*.rpm
             release-assets/**/*.exe
-            release-assets/**/*.msi
             release-assets/**/*.dmg
