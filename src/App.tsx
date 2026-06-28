@@ -90,19 +90,17 @@ export default function App() {
     const destroyWindow = async () => {
       try {
         await appWindow.destroy();
-      } catch {
-        setStatus("Could not close the window.");
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : "Could not close the window.");
       }
     };
 
     const unlistenPromise = appWindow.onCloseRequested(async (event) => {
-      event.preventDefault();
-
       if (!dirtyRef.current) {
-        await destroyWindow();
         return;
       }
 
+      event.preventDefault();
       await queuePendingAction("close this window", async () => {
         await destroyWindow();
       });
