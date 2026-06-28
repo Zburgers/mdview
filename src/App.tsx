@@ -41,6 +41,7 @@ export default function App() {
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
+  const dirtyRef = useRef(documentState.dirty);
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
   const hasDocument = documentState.isOpen;
@@ -69,6 +70,10 @@ export default function App() {
   }, [actualTheme, documentState.dirty, documentState.name]);
 
   useEffect(() => {
+    dirtyRef.current = documentState.dirty;
+  }, [documentState.dirty]);
+
+  useEffect(() => {
     const unlistenPromise = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
       const candidate = event.payload.paths.find(isMarkdownLikePath);
       if (candidate) {
@@ -83,7 +88,7 @@ export default function App() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     const unlistenPromise = appWindow.onCloseRequested(async (event) => {
-      if (!documentState.dirty) {
+      if (!dirtyRef.current) {
         return;
       }
 
@@ -96,7 +101,7 @@ export default function App() {
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [documentState.dirty]);
+  }, []);
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {

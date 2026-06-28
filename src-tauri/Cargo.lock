@@ -1967,7 +1967,7 @@ dependencies = [
 
 [[package]]
 name = "mdview"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "serde",
  "serde_json",

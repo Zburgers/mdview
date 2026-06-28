@@ -59,6 +59,7 @@ describe("App desktop layout", () => {
       lossy: false
     });
     vi.mocked(writeMarkdownFile).mockResolvedValue();
+    onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
     destroyMock.mockClear();
     Object.defineProperty(window, "matchMedia", {
@@ -142,6 +143,24 @@ describe("App desktop layout", () => {
     expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
   });
 
+  it("allows the native close request to finish when there are no unsaved changes", async () => {
+    let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+    onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
+      closeHandler = handler;
+      return Promise.resolve(() => undefined);
+    });
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Open Markdown File" });
+
+    const preventDefault = vi.fn();
+    await closeHandler?.({ preventDefault });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
+  });
+
   it("cancels closing the window when the user cancels the unsaved-changes dialog", async () => {
     let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
     onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
@@ -163,6 +182,28 @@ describe("App desktop layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(destroyMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
+  });
+
+  it("destroys the window when unsaved changes are discarded during close", async () => {
+    let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+    onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
+      closeHandler = handler;
+      return Promise.resolve(() => undefined);
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
+
+    const preventDefault = vi.fn();
+    await closeHandler?.({ preventDefault });
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    fireEvent.click(await screen.findByRole("button", { name: "Don't Save" }));
+
+    await waitFor(() => expect(destroyMock).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
   });
 });
