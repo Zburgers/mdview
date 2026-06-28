@@ -208,10 +208,10 @@ desktop entry.
 Branch and pull-request runs upload CI artifacts for validation. Version tags
 matching `v*` publish the installer assets to a GitHub Release automatically.
 
-Release mdview 1.0.0 from a clean, committed tree:
+Release mdview from a clean, committed tree:
 
 ```bash
-./release.sh --version v1.0.0
+./release.sh --version v1.0.1
 ```
 
 The tag push triggers native CI builds and attaches the installers to the GitHub
