@@ -143,7 +143,7 @@ describe("App desktop layout", () => {
     expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
   });
 
-  it("allows the native close request to finish when there are no unsaved changes", async () => {
+  it("destroys the window when there are no unsaved changes", async () => {
     let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
     onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
       closeHandler = handler;
@@ -157,7 +157,8 @@ describe("App desktop layout", () => {
     const preventDefault = vi.fn();
     await closeHandler?.({ preventDefault });
 
-    expect(preventDefault).not.toHaveBeenCalled();
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(destroyMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
   });
 

@@ -87,14 +87,24 @@ export default function App() {
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
+    const destroyWindow = async () => {
+      try {
+        await appWindow.destroy();
+      } catch {
+        setStatus("Could not close the window.");
+      }
+    };
+
     const unlistenPromise = appWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+
       if (!dirtyRef.current) {
+        await destroyWindow();
         return;
       }
 
-      event.preventDefault();
       await queuePendingAction("close this window", async () => {
-        await appWindow.destroy();
+        await destroyWindow();
       });
     });
 
