@@ -2,8 +2,8 @@
 
 `mdview` v2 replaces the public Python GTK installation path with a Tauri v2 desktop
 application. The Python implementation remains in the repository as the legacy
-reference app while the Tauri app becomes the default direction for packaged
-desktop releases.
+reference app while the Tauri app is the default path for packaged desktop
+releases.
 
 ## Preserved Behavior
 
@@ -35,4 +35,5 @@ desktop releases.
 - AppImage generation failed on the Fedora validation host because `linuxdeploy`
   could not strip Fedora `.relr.dyn` libraries. Ubuntu CI is configured as the
   primary AppImage build path.
-- Windows and macOS installers must be produced on native CI runners.
+- Windows and macOS installers are produced on native GitHub Actions runners.
+- Release assets are unsigned until signing credentials are available.

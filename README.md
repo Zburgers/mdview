@@ -3,14 +3,13 @@
 `mdview` is a tiny, fast, local-first Markdown reader for developers, students,
 technical teams, and AI-agent workflows.
 
-v2 is being rebuilt as a Tauri v2 desktop app for Linux, Windows, and macOS. The
-goal is clean Markdown viewing, optional source/split workflows, Mermaid support,
-and print-friendly PDF output without Electron or unsafe shell-script
-installation.
+v1 is a Tauri v2 desktop app for Linux, Windows, and macOS. The goal is clean
+Markdown viewing, optional source/split workflows, Mermaid support, and
+print-friendly PDF output without Electron or unsafe shell-script installation.
 
 ## Current Status
 
-The Tauri v2 foundation is implemented on the `tauri-v2` branch.
+The Tauri v2 application is the primary product path for mdview 1.0.
 
 Included now:
 
@@ -28,7 +27,7 @@ Included now:
 - Unsaved-change protection for new/open/recent-file/drag-and-drop/close flows.
 - Print stylesheet for system print-to-PDF.
 - Tauri Linux `.deb` and `.rpm` bundle validation.
-- GitHub Actions foundation for Linux, Windows, and macOS release artifacts.
+- GitHub Actions release builds for Linux, Windows, and macOS installers.
 
 ## Safety Direction
 
@@ -82,9 +81,25 @@ cargo check
 cargo clippy -- -D warnings
 ```
 
+## Install
+
+Download the latest installer from the
+[mdview GitHub Releases page](https://github.com/Zburgers/mdview/releases).
+
+Use the asset that matches your operating system:
+
+- Windows: download the NSIS `*-setup.exe`, run it, and follow the installer.
+- Linux Debian/Ubuntu: download the `.deb` and install it with `sudo dpkg -i ./mdview*.deb`.
+- Linux Fedora/RHEL/openSUSE: download the `.rpm` and install it with `sudo rpm -i ./mdview*.rpm`.
+- Linux portable: download the `.AppImage`, run `chmod +x ./mdview*.AppImage`, then launch it.
+- macOS: download the `.dmg`, open it, and drag `mdview` to Applications.
+
+Windows installers use the embedded WebView2 bootstrapper. Most Windows systems
+already have WebView2; if not, the installer bootstraps it during setup.
+
 ## Packaging
 
-Build the Tauri app:
+Build the Tauri app locally:
 
 ```bash
 pnpm tauri build
@@ -177,7 +192,7 @@ Artifacts:
 Unsigned local builds may require opening the app via Finder context menu on the
 first launch, or removing quarantine attributes during local testing.
 
-## CI Artifact Builds
+## Release Builds
 
 `.github/workflows/release-build.yml` validates the app on Ubuntu, then builds:
 
@@ -190,8 +205,17 @@ which first builds `.deb` and `.rpm`, then falls back to a patched AppDir plus
 manual `appimagetool` packaging when `linuxdeploy` rejects the generated
 desktop entry.
 
-After pushing the branch, download the artifacts from the workflow run and test
-them natively on each OS.
+Branch and pull-request runs upload CI artifacts for validation. Version tags
+matching `v*` publish the installer assets to a GitHub Release automatically.
+
+Release mdview 1.0.0 from a clean, committed tree:
+
+```bash
+./release.sh --version v1.0.0
+```
+
+The tag push triggers native CI builds and attaches the installers to the GitHub
+Release for normal user download.
 
 ## Legacy Python GTK App
 
@@ -228,15 +252,16 @@ that can affect desktop integration files.
 - v0.1: viewer foundation, native open/save, recent files, theme persistence.
 - v0.2: split/source workflows, sync scroll polish, source editing ergonomics.
 - v0.3: export polish, AppImage CI validation, release artifact naming.
-- v1.0: hardened local image policy, file associations, signed artifacts where
-  practical, public release documentation.
+- v1.0: Tauri-first public release, native file associations, release installers,
+  and public release documentation.
 
 ## Known Limitations
 
 - Raw HTML is not trusted by default.
 - Local images are scoped to opened-document workflows and still need additional
   hardening before a public release.
-- Windows and macOS artifacts require native host validation and are unsigned by default.
+- Windows and macOS artifacts are built on native GitHub Actions runners and are
+  unsigned by default.
 
 ## License
 

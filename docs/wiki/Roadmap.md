@@ -24,7 +24,10 @@
 
 ## v1.0 Public Release
 
-- Hardened local image handling.
+- Tauri-first public release.
 - File association/open-with support.
-- Signed release artifacts where practical.
-- Security review of Markdown, Mermaid, and link behavior.
+- Linux AppImage, `.deb`, and `.rpm` release assets.
+- Windows NSIS installer release asset.
+- macOS `.dmg` release asset.
+- Release assets published automatically from GitHub Actions tag builds.
+- Unsigned artifacts until signing credentials are available.

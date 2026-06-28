@@ -43,7 +43,8 @@ directory.
 
 - `scripts/adr_guard.sh` enforces ADR presence and atomic ADR commits.
 - `scripts/push.sh` runs ADR checks before `git push`.
-- `release.sh` runs ADR checks before tagging and creating releases.
+- `release.sh` verifies release metadata and pushes the release tag; GitHub
+  Actions builds and publishes installer assets.
 
 ## Required Directory Layout
 

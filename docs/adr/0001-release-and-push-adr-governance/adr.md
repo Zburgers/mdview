@@ -52,7 +52,8 @@ Adopt **scripted local guards plus agent policy documentation**:
 
 - Enforce ADR directory structure and commit atomicity with `scripts/adr_guard.sh`.
 - Require push through `scripts/push.sh`.
-- Require releases through `./release.sh` with ADR guard execution.
+- Require releases through `./release.sh`, with installer building and publishing
+  handled by GitHub Actions after the version tag is pushed.
 - Require per-ADR folder layout (`docs/adr/NNNN-slug/adr.md` + `assets/`).
 - Require an explicit maintainer confirmation step before push/release.
 
@@ -84,7 +85,7 @@ automation behavior is aligned in every chat.
 
 - `scripts/adr_guard.sh` validates ADR structure and commit atomicity.
 - `scripts/push.sh` runs ADR guard before `git push`.
-- `release.sh` runs ADR guard before version tagging.
+- `release.sh` validates release metadata before version tagging.
 - Agents must follow `AGENT.md` release and push protocol.
 
 ## Related Decisions

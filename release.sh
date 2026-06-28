@@ -2,10 +2,8 @@
 set -Eeuo pipefail
 
 APP_NAME="mdview"
-DEFAULT_BUMP="patch"
 DRY_RUN=false
 VERSION=""
-ASSET=""
 
 log() {
     printf '[%s release] %s\n' "$APP_NAME" "$*"
@@ -21,30 +19,25 @@ run_cmd() {
         printf '[dry-run] %s\n' "$*"
         return 0
     fi
+
     "$@"
 }
 
 usage() {
     cat <<EOF
-Usage: ./release.sh [options]
+Usage: ./release.sh --version vX.Y.Z [--dry-run]
 
-Default behavior:
-  - Auto-bump patch version from latest vX.Y.Z tag
-  - Verify clean git status and python compile check
-  - Create annotated git tag
-  - Push tag to origin
-  - Create GitHub release with generated notes
-  - Upload source tarball asset
+Creates and pushes an annotated version tag. GitHub Actions builds the native
+Tauri installers on Linux, Windows, and macOS, then publishes them to the GitHub
+Release created for the tag.
 
 Options:
-  --version vX.Y.Z  Use explicit version tag instead of auto-bump
-  --dry-run         Print planned actions without executing
-  -h, --help        Show this help
+  --version vX.Y.Z  Release version tag. Must match package and Tauri metadata.
+  --dry-run         Print planned actions without executing.
+  -h, --help        Show this help.
 
-Examples:
-  ./release.sh
-  ./release.sh --version v1.3.0
-  ./release.sh --dry-run
+Example:
+  ./release.sh --version v1.0.0
 EOF
 }
 
@@ -76,128 +69,68 @@ require_cmd() {
     command -v "$cmd" >/dev/null 2>&1 || fail "Missing command: $cmd"
 }
 
-run_adr_guard() {
-    local script_path="scripts/adr_guard.sh"
-    [[ -x "$script_path" ]] || fail "Missing executable ADR guard: $script_path"
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-        printf '[dry-run] %s --mode release\n' "$script_path"
-        return 0
-    fi
-
-    "$script_path" --mode release
-}
-
 require_clean_git() {
     local status
     status="$(git status --porcelain)"
-    [[ -z "$status" ]] || fail "Working tree is not clean. Commit/stash changes first."
+    [[ -z "$status" ]] || fail "Working tree is not clean. Commit or stash changes first."
 }
 
 validate_version() {
-    local v="$1"
-    [[ "$v" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Invalid version '$v' (expected format: vX.Y.Z)"
+    local tag="$1"
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Invalid version '$tag' (expected vX.Y.Z)"
 }
 
-latest_semver_tag() {
-    local latest=""
-    while IFS= read -r tag; do
-        if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            latest="$tag"
-        fi
-    done < <(git tag --list 'v*' --sort=version:refname)
-
-    printf '%s' "$latest"
+json_version() {
+    local path="$1"
+    node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version)" "$path"
 }
 
-next_patch_version() {
-    local current="$1"
-    local major minor patch
-
-    if [[ -z "$current" ]]; then
-        printf 'v0.1.0'
-        return 0
-    fi
-
-    major="${current#v}"
-    major="${major%%.*}"
-
-    minor="${current#v$major.}"
-    minor="${minor%%.*}"
-
-    patch="${current##*.}"
-    patch="$((patch + 1))"
-
-    printf 'v%s.%s.%s' "$major" "$minor" "$patch"
+toml_version() {
+    local path="$1"
+    sed -n 's/^version = "\(.*\)"/\1/p' "$path" | head -n 1
 }
 
-cleanup() {
-    if [[ -n "$ASSET" && -f "$ASSET" ]]; then
-        rm -f "$ASSET"
-        log "Cleaned up asset: $ASSET"
-    fi
-}
+require_matching_versions() {
+    local version_without_v="${VERSION#v}"
+    local package_version
+    local tauri_version
+    local cargo_version
 
-create_asset() {
-    local version="$1"
-    ASSET="${APP_NAME}-${version}.tar.gz"
+    package_version="$(json_version package.json)"
+    tauri_version="$(json_version src-tauri/tauri.conf.json)"
+    cargo_version="$(toml_version src-tauri/Cargo.toml)"
 
-    run_cmd git archive --format=tar.gz --output "$ASSET" HEAD
-    printf '%s' "$ASSET"
+    [[ "$package_version" == "$version_without_v" ]] || fail "package.json is $package_version, expected $version_without_v"
+    [[ "$tauri_version" == "$version_without_v" ]] || fail "src-tauri/tauri.conf.json is $tauri_version, expected $version_without_v"
+    [[ "$cargo_version" == "$version_without_v" ]] || fail "src-tauri/Cargo.toml is $cargo_version, expected $version_without_v"
 }
 
 main() {
     parse_args "$@"
 
+    [[ -n "$VERSION" ]] || fail "--version is required"
+    validate_version "$VERSION"
+
     require_cmd git
-    require_cmd gh
-    require_cmd python3
+    require_cmd node
 
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "Not inside a git repository"
 
-    log "Running prechecks"
-    run_adr_guard
     require_clean_git
-
-    # Compile-check all Python source files
-    python3 -m py_compile markdown_editor.py
-    python3 -m py_compile mdview_utils.py
-    log "Python syntax check passed"
-
-    gh auth status >/dev/null
-
-    if [[ -z "$VERSION" ]]; then
-        if [[ "$DEFAULT_BUMP" == "patch" ]]; then
-            local latest
-            latest="$(latest_semver_tag)"
-            VERSION="$(next_patch_version "$latest")"
-        fi
-    fi
-
-    validate_version "$VERSION"
+    require_matching_versions
 
     if git rev-parse "$VERSION" >/dev/null 2>&1; then
-        fail "Tag already exists: $VERSION"
+        fail "Tag already exists locally: $VERSION"
     fi
 
-    log "Releasing version $VERSION"
+    if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+        fail "Tag already exists on origin: $VERSION"
+    fi
 
-    # Register cleanup trap after ASSET path is known
-    trap cleanup EXIT
-
-    local asset
-    asset="$(create_asset "$VERSION")"
-
+    log "Creating release tag $VERSION"
     run_cmd git tag -a "$VERSION" -m "Release $VERSION"
     run_cmd git push origin "$VERSION"
-
-    if [[ "$DRY_RUN" == "true" ]]; then
-        printf '[dry-run] gh release create %s %s --generate-notes --title %s\n' "$VERSION" "$asset" "$VERSION"
-    else
-        gh release create "$VERSION" "$asset" --generate-notes --title "$VERSION"
-    fi
-
-    log "Release complete: $VERSION"
+    log "Pushed $VERSION. GitHub Actions will publish installer assets to the release."
 }
 
 main "$@"
