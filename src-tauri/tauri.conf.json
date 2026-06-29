@@ -65,11 +65,13 @@
       },
       "deb": {
         "depends": [],
+        "desktopTemplate": "packaging/linux/mdview.desktop.hbs",
         "files": {
           "usr/share/metainfo/dev.zburgers.mdview.appdata.xml": "packaging/linux/dev.zburgers.mdview.appdata.xml"
         }
       },
       "rpm": {
+        "desktopTemplate": "packaging/linux/mdview.desktop.hbs",
         "files": {
           "/usr/share/metainfo/dev.zburgers.mdview.appdata.xml": "packaging/linux/dev.zburgers.mdview.appdata.xml"
         }

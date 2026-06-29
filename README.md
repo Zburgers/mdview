@@ -89,8 +89,8 @@ Download the latest installer from the
 Use the asset that matches your operating system:
 
 - Windows: download the NSIS `*-setup.exe`, run it, and follow the installer.
-- Linux Debian/Ubuntu: download the `.deb` and install it with `sudo dpkg -i ./mdview*.deb`.
-- Linux Fedora/RHEL/openSUSE: download the `.rpm` and install it with `sudo rpm -i ./mdview*.rpm`.
+- Linux Debian/Ubuntu: download the `.deb` and install or upgrade it with `sudo apt install ./mdview*.deb`.
+- Linux Fedora/RHEL/openSUSE: download the `.rpm` and install or upgrade it with `sudo dnf install ./mdview*.rpm`.
 - Linux portable: download the `.AppImage`, run `chmod +x ./mdview*.AppImage`, then launch it.
 - macOS: download the `.dmg`, open it, and drag `mdview` to Applications.
 
@@ -152,8 +152,8 @@ Artifacts are written under `src-tauri/target/release/bundle/`:
 Install examples:
 
 ```bash
-sudo dpkg -i src-tauri/target/release/bundle/deb/*.deb
-sudo rpm -i src-tauri/target/release/bundle/rpm/*.rpm
+sudo apt install ./src-tauri/target/release/bundle/deb/*.deb
+sudo dnf install ./src-tauri/target/release/bundle/rpm/*.rpm
 chmod +x src-tauri/target/release/bundle/appimage/*.AppImage
 ./src-tauri/target/release/bundle/appimage/*.AppImage
 ```
