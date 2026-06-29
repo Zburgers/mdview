@@ -7,6 +7,36 @@ cd "$repo_root"
 export APPIMAGE_EXTRACT_AND_RUN="${APPIMAGE_EXTRACT_AND_RUN:-1}"
 export NO_STRIP="${NO_STRIP:-1}"
 
+require_commands() {
+  local missing=()
+  local cmd
+
+  for cmd in "$@"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$cmd")
+    fi
+  done
+
+  if (( ${#missing[@]} > 0 )); then
+    printf 'Missing required command(s): %s\n' "${missing[*]}" >&2
+    printf 'Install the Linux packaging dependencies before running this script.\n' >&2
+    exit 127
+  fi
+}
+
+require_commands \
+  appstreamcli \
+  cpio \
+  desktop-file-validate \
+  dpkg-deb \
+  md5sum \
+  node \
+  pnpm \
+  python3 \
+  rpmbuild \
+  rpm2cpio \
+  sort
+
 version="$(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version)")"
 
 patch_desktop_file() {
