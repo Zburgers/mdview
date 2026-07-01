@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Preview } from "./Preview";
+import { Preview } from "../../../src/components/Preview";
 
 const {
   askMock,
@@ -41,11 +41,11 @@ vi.mock("mermaid", () => ({
   }
 }));
 
-vi.mock("../lib/highlight", () => ({
+vi.mock("../../../src/lib/highlight", () => ({
   highlightText: highlightTextMock
 }));
 
-vi.mock("../lib/markdown", () => ({
+vi.mock("../../../src/lib/markdown", () => ({
   renderMarkdown: renderMarkdownMock,
   sanitizeMermaidSvg: sanitizeMermaidSvgMock
 }));

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(resolve(__dirname, "styles.css"), "utf8");
+const css = readFileSync(resolve(__dirname, "../../../src/styles.css"), "utf8");
 
 function ruleFor(selector: string) {
   const selectorStart = css.indexOf(`${selector} {`);

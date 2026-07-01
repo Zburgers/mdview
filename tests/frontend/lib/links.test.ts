@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyHref } from "./links";
+import { classifyHref } from "../../../src/lib/links";
 
 describe("classifyHref", () => {
   it("allows ordinary http links to be opened by user action", () => {

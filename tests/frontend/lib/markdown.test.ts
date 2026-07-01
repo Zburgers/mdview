@@ -5,7 +5,7 @@ import {
   normalizeMarkdownText,
   renderMarkdown,
   sanitizeMermaidSvg
-} from "./markdown";
+} from "../../../src/lib/markdown";
 
 describe("markdown helpers", () => {
   it("accepts markdown and text-like file names", () => {

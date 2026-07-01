@@ -1,8 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
-import { defaultSettings } from "./lib/defaults";
-import { loadSettings, openMarkdownDialog, readMarkdownFile, writeMarkdownFile } from "./lib/tauri";
+import App from "../../../src/App";
+import { defaultSettings } from "../../../src/lib/defaults";
+import {
+  loadSettings,
+  openMarkdownDialog,
+  readMarkdownFile,
+  writeMarkdownFile
+} from "../../../src/lib/tauri";
 
 const destroyMock = vi.fn(() => Promise.resolve());
 const onCloseRequestedMock = vi.fn();
@@ -18,7 +23,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   }))
 }));
 
-vi.mock("./components/Preview", () => ({
+vi.mock("../../../src/components/Preview", () => ({
   Preview: ({ markdown }: { markdown: string }) => (
     <article className="preview markdown-body" data-testid="preview">
       {markdown}
@@ -26,7 +31,7 @@ vi.mock("./components/Preview", () => ({
   )
 }));
 
-vi.mock("./lib/tauri", () => ({
+vi.mock("../../../src/lib/tauri", () => ({
   loadSettings: vi.fn(),
   openMarkdownDialog: vi.fn(),
   readMarkdownFile: vi.fn(),

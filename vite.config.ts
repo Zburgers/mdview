@@ -1,5 +1,5 @@
-import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -15,8 +15,9 @@ export default defineConfig({
     sourcemap: false
   },
   test: {
+    include: ["tests/frontend/**/*.test.ts", "tests/frontend/**/*.test.tsx"],
     environment: "jsdom",
-    setupFiles: ["src/test/setup.ts"],
+    setupFiles: ["tests/setup/vitest.setup.ts"],
     coverage: {
       reporter: ["text", "lcov"]
     }

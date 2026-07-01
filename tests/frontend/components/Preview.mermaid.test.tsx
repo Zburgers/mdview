@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Preview } from "../src/components/Preview";
+import { Preview } from "../../../src/components/Preview";
 
 const { mermaidInitializeMock, mermaidRenderMock } = vi.hoisted(() => ({
   mermaidInitializeMock: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => path
 }));
 
-vi.mock("../src/lib/highlight", () => ({
+vi.mock("../../../src/lib/highlight", () => ({
   highlightText: vi.fn()
 }));
 

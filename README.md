@@ -81,6 +81,10 @@ cargo check
 cargo clippy -- -D warnings
 ```
 
+Active tests live under `tests/`. Frontend coverage runs through the shared
+Vitest `jsdom` environment configured in `vite.config.ts`, with the setup file
+under `tests/setup/`.
+
 ## Install
 
 Download the latest installer from the
@@ -242,6 +246,8 @@ that can affect desktop integration files.
 - `src/lib/` - Markdown, link, and Tauri helper modules.
 - `src/components/` - Viewer UI components.
 - `src-tauri/` - Tauri v2 Rust backend, configuration, icons, and capabilities.
+- `tests/` - centralized test home for active frontend coverage and archived legacy tests.
+- `tests/index.md` - human index for test inventory and scope.
 - `.github/workflows/release-build.yml` - validation and release artifact CI.
 - `docs/migration/tauri-v2.md` - migration notes.
 - `docs/wiki/` - GitHub Wiki fallback content.

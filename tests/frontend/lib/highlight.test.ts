@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { highlightText } from "./highlight";
+import { highlightText } from "../../../src/lib/highlight";
 
 describe("highlightText", () => {
   it("highlights text nodes without changing attributes or tags", () => {
