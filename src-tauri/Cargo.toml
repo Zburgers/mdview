@@ -1,6 +1,6 @@
 [package]
 name = "mdview"
-version = "1.0.6"
+version = "1.0.7"
 description = "A tiny, fast, local-first Markdown reader."
 authors = ["Zburgers"]
 license = "MIT"
