@@ -4,7 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { highlightText } from "../lib/highlight";
 import { classifyHref } from "../lib/links";
-import { renderMarkdown } from "../lib/markdown";
+import { renderMarkdown, sanitizeMermaidSvg } from "../lib/markdown";
 
 type PreviewProps = {
   markdown: string;
@@ -67,7 +67,7 @@ export function Preview({ markdown, filePath, theme, searchQuery }: PreviewProps
       mermaid
         .render(`mdview-mermaid-${index}-${Date.now()}`, code)
         .then(({ svg }) => {
-          host.innerHTML = svg;
+          host.innerHTML = sanitizeMermaidSvg(svg);
         })
         .catch((cause: unknown) => {
           host.className = "mermaid-error";
