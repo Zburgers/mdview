@@ -14,6 +14,12 @@ describe("classifyHref", () => {
     expect(classifyHref("data:text/html,hi").kind).toBe("blocked");
   });
 
+  it("blocks mailto and custom protocols instead of treating them as external", () => {
+    expect(classifyHref("mailto:alice@example.com").kind).toBe("blocked");
+    expect(classifyHref("tel:+15551234567").kind).toBe("blocked");
+    expect(classifyHref("slack://channel?team=T123&id=C456").kind).toBe("blocked");
+  });
+
   it("keeps local anchors in the preview", () => {
     expect(classifyHref("#heading")).toEqual({ kind: "anchor", href: "#heading" });
   });

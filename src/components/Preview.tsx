@@ -1,6 +1,7 @@
 import mermaid from "mermaid";
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { highlightText } from "../lib/highlight";
 import { classifyHref } from "../lib/links";
@@ -95,7 +96,14 @@ export function Preview({ markdown, filePath, theme, searchQuery }: PreviewProps
     const href = anchor.getAttribute("href") ?? "";
     const classified = classifyHref(href);
     if (classified.kind === "external") {
-      await openUrl(classified.href);
+      const confirmed = await ask(`Open this external link?\n\n${classified.href}`, {
+        title: "Open external link?",
+        kind: "warning"
+      });
+
+      if (confirmed) {
+        await openUrl(classified.href);
+      }
     } else if (classified.kind === "anchor") {
       document.querySelector(classified.href)?.scrollIntoView({ block: "start" });
     }
