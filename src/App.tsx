@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
 import { defaultSettings } from "./lib/defaults";
@@ -293,9 +294,9 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <WindowTitleBar fileName={documentState.name} dirty={documentState.dirty} />
+
       <Toolbar
-        fileName={documentState.name}
-        dirty={documentState.dirty}
         mode={settings.viewMode}
         theme={settings.theme}
         query={searchQuery}

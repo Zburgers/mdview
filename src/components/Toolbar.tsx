@@ -15,8 +15,6 @@ import {
 import type { ThemePreference, ViewMode } from "../types";
 
 type ToolbarProps = {
-  fileName: string;
-  dirty: boolean;
   mode: ViewMode;
   theme: ThemePreference;
   query: string;
@@ -41,14 +39,6 @@ const modes: Array<{ value: ViewMode; label: string; icon: typeof FileText }> = 
 export function Toolbar(props: ToolbarProps) {
   return (
     <header className="toolbar">
-      <div className="title-group">
-        <div className="app-mark">mdview</div>
-        <div className="file-title" title={props.fileName}>
-          {props.fileName}
-          {props.dirty ? " *" : ""}
-        </div>
-      </div>
-
       <div className="toolbar-actions">
         <button className="icon-button" title="New Markdown File" onClick={props.onNewFile}>
           <FilePlus2 size={18} />

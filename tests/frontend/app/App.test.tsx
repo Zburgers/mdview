@@ -9,8 +9,12 @@ import {
   writeMarkdownFile
 } from "../../../src/lib/tauri";
 
+const closeMock = vi.fn(() => Promise.resolve());
 const destroyMock = vi.fn(() => Promise.resolve());
+const minimizeMock = vi.fn(() => Promise.resolve());
 const onCloseRequestedMock = vi.fn();
+const startDraggingMock = vi.fn(() => Promise.resolve());
+const toggleMaximizeMock = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => undefined))
@@ -18,7 +22,11 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
+    close: closeMock,
     destroy: destroyMock,
+    minimize: minimizeMock,
+    startDragging: startDraggingMock,
+    toggleMaximize: toggleMaximizeMock,
     onCloseRequested: onCloseRequestedMock
   }))
 }));
@@ -64,9 +72,13 @@ describe("App desktop layout", () => {
       lossy: false
     });
     vi.mocked(writeMarkdownFile).mockResolvedValue();
+    closeMock.mockClear();
     onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
     destroyMock.mockClear();
+    minimizeMock.mockClear();
+    startDraggingMock.mockClear();
+    toggleMaximizeMock.mockClear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: matchMediaMock
@@ -81,17 +93,49 @@ describe("App desktop layout", () => {
     });
 
     const shell = container.querySelector(".app-shell");
+    const titlebar = container.querySelector(".window-titlebar");
     const toolbar = container.querySelector(".toolbar");
     const workspace = container.querySelector(".workspace");
     const previewScroll = container.querySelector(".preview-scroll");
     const statusStack = container.querySelector(".status-stack");
 
-    expect(shell?.firstElementChild).toBe(toolbar);
+    expect(shell?.firstElementChild).toBe(titlebar);
+    expect(titlebar?.nextElementSibling).toBe(toolbar);
     expect(toolbar?.nextElementSibling).toBe(statusStack);
     expect(statusStack?.nextElementSibling).toBe(workspace);
+    expect(titlebar?.closest(".workspace")).toBeNull();
     expect(toolbar?.closest(".workspace")).toBeNull();
     expect(previewScroll?.closest(".workspace")).toBe(workspace);
     expect(previewScroll).toHaveClass("preview-scroll");
+  });
+
+  it("shows file identity in the integrated titlebar", async () => {
+    render(<App />);
+
+    expect(await screen.findByText("mdview")).toBeInTheDocument();
+    expect(screen.getByTestId("window-file-title")).toHaveTextContent("Untitled");
+
+    fireEvent.click(screen.getByTitle("New Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
+
+    expect(screen.getByTestId("window-file-title")).toHaveTextContent("Untitled *");
+  });
+
+  it("routes custom titlebar window controls through Tauri window APIs", async () => {
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Open Markdown File" });
+
+    fireEvent.pointerDown(screen.getByTestId("window-drag-region"));
+    fireEvent.click(screen.getByTitle("Minimize Window"));
+    fireEvent.click(screen.getByTitle("Maximize or Restore Window"));
+    fireEvent.click(screen.getByTitle("Close Window"));
+
+    expect(startDraggingMock).toHaveBeenCalledTimes(1);
+    expect(minimizeMock).toHaveBeenCalledTimes(1);
+    expect(toggleMaximizeMock).toHaveBeenCalledTimes(1);
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(destroyMock).not.toHaveBeenCalled();
   });
 
   it.each(["reader", "split", "source"] as const)(
