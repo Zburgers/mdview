@@ -45,6 +45,7 @@ Use the smallest relevant validation set first.
 - frontend/unit checks:
   - `pnpm test`
   - `pnpm typecheck`
+- active Vitest files live under `tests/frontend/`
 - full frontend build:
   - `pnpm build`
 - Rust/Tauri checks when desktop/backend code changes:

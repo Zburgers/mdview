@@ -99,6 +99,14 @@ export async function renderMarkdown(markdown: string): Promise<string> {
   });
 }
 
+export function sanitizeMermaidSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ALLOW_DATA_ATTR: false,
+    FORBID_TAGS: ["script", "foreignObject"]
+  });
+}
+
 function addTaskListClasses(html: string): string {
   return html.replaceAll(
     /<li>(<input (?:checked="" )?disabled="" type="checkbox">)/g,

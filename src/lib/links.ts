@@ -4,7 +4,7 @@ export type ClassifiedHref =
   | { kind: "file"; href: string }
   | { kind: "blocked"; href: string };
 
-const allowedExternalProtocols = new Set(["http:", "https:", "mailto:"]);
+const allowedExternalProtocols = new Set(["http:", "https:"]);
 
 export function classifyHref(href: string): ClassifiedHref {
   const trimmed = href.trim();

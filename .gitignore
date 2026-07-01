@@ -3,8 +3,10 @@ __pycache__/
 .ruff_cache/
 node_modules/
 dist/
+coverage/
 src-tauri/target/
 src-tauri/gen/schemas/
 *.log
 *.tsbuildinfo
 .gitagent/
+IDEA.md

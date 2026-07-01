@@ -1,13 +1,13 @@
-import unittest
 import re
+import unittest
 
 from mdview_utils import (
     build_preview_html,
     compute_scroll_ratio,
     generate_nonce,
-    should_block_policy_decision,
-    render_mermaid_blocks,
     render_markdown_html,
+    render_mermaid_blocks,
+    should_block_policy_decision,
     suggested_pdf_filename,
 )
 
