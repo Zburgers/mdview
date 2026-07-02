@@ -49,7 +49,7 @@ export function getMarkdownFileName(path: string | null): string {
 }
 
 export async function renderMarkdown(markdown: string): Promise<string> {
-  const html = addTaskListClasses(await markedParser.parse(markdown));
+  const html = addTaskListClasses(await markedParser.parse(promoteStandaloneMermaid(markdown)));
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a",
@@ -99,6 +99,38 @@ export async function renderMarkdown(markdown: string): Promise<string> {
   });
 }
 
+export function promoteStandaloneMermaid(markdown: string): string {
+  const lines = markdown.split("\n");
+  const output: string[] = [];
+  let inFence = false;
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      output.push(line);
+      index += 1;
+      continue;
+    }
+
+    if (!inFence && isMermaidStart(line) && startsAtBlockBoundary(output)) {
+      const block: string[] = [];
+      while (index < lines.length && lines[index].trim() !== "") {
+        block.push(lines[index]);
+        index += 1;
+      }
+      output.push("```mermaid", ...block, "```");
+      continue;
+    }
+
+    output.push(line);
+    index += 1;
+  }
+
+  return output.join("\n");
+}
+
 export function sanitizeMermaidSvg(svg: string): string {
   return DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
@@ -120,4 +152,15 @@ function escapeAttribute(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function isMermaidStart(line: string): boolean {
+  return /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph)\b/.test(
+    line
+  );
+}
+
+function startsAtBlockBoundary(output: string[]): boolean {
+  const previous = output[output.length - 1];
+  return previous === undefined || previous.trim() === "";
 }

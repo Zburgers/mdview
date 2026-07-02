@@ -5,12 +5,13 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
-  Moon,
   Printer,
   Save,
   Search,
-  Sun,
-  Trash2
+  Settings2,
+  Sparkles,
+  Trash2,
+  Zap
 } from "lucide-react";
 import type { ThemePreference, ViewMode } from "../types";
 
@@ -18,12 +19,15 @@ type ToolbarProps = {
   mode: ViewMode;
   theme: ThemePreference;
   query: string;
+  searchMatchCount: number;
   syncScroll: boolean;
+  appVersion: string;
   onNewFile: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onPrint: () => void;
+  onOpenSettings: () => void;
   onModeChange: (mode: ViewMode) => void;
   onThemeChange: (theme: ThemePreference) => void;
   onQueryChange: (query: string) => void;
@@ -34,6 +38,15 @@ const modes: Array<{ value: ViewMode; label: string; icon: typeof FileText }> = 
   { value: "reader", label: "Reader", icon: FileText },
   { value: "split", label: "Split", icon: Columns2 },
   { value: "source", label: "Source", icon: FileCode2 }
+];
+
+const themes: Array<{ value: ThemePreference; label: string }> = [
+  { value: "system", label: "System" },
+  { value: "dark", label: "Graphite" },
+  { value: "light", label: "Quartz" },
+  { value: "paper", label: "Paper" },
+  { value: "midnight", label: "Midnight" },
+  { value: "sage", label: "Sage" }
 ];
 
 export function Toolbar(props: ToolbarProps) {
@@ -57,51 +70,64 @@ export function Toolbar(props: ToolbarProps) {
         </button>
       </div>
 
-      <div className="mode-control" aria-label="View mode">
-        {modes.map(({ value, label, icon: Icon }) => (
-          <button
-            className={props.mode === value ? "active" : ""}
-            key={value}
-            onClick={() => props.onModeChange(value)}
-            title={label}
-          >
-            <Icon size={16} />
-            <span>{label}</span>
-          </button>
-        ))}
+      <div className="toolbar-center">
+        <div className="mode-control" aria-label="View mode">
+          <span className={`mode-indicator mode-${props.mode}`} aria-hidden="true" />
+          {modes.map(({ value, label, icon: Icon }) => (
+            <button
+              className={props.mode === value ? "active" : ""}
+              key={value}
+              onClick={() => props.onModeChange(value)}
+              title={label}
+            >
+              <Icon size={15} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <label className="search-box">
-        <Search size={16} />
-        <input
-          value={props.query}
-          placeholder="Search"
-          onChange={(event) => props.onQueryChange(event.currentTarget.value)}
-        />
-      </label>
+      <div className="toolbar-right">
+        <label className="search-box">
+          <Search size={16} />
+          <input
+            value={props.query}
+            placeholder="Search document"
+            onChange={(event) => props.onQueryChange(event.currentTarget.value)}
+          />
+          {props.query ? <span>{props.searchMatchCount}</span> : null}
+        </label>
 
-      <label className="sync-toggle">
-        <input
-          type="checkbox"
-          checked={props.syncScroll}
-          onChange={(event) => props.onSyncScrollChange(event.currentTarget.checked)}
-        />
-        Sync
-      </label>
+        <button
+          className={`sync-toggle ${props.syncScroll ? "active" : ""}`}
+          type="button"
+          aria-pressed={props.syncScroll}
+          title="Sync source and reader scrolling"
+          onClick={() => props.onSyncScrollChange(!props.syncScroll)}
+        >
+          <Zap size={15} />
+          <span>Sync</span>
+        </button>
 
-      <select
-        className="theme-select"
-        value={props.theme}
-        onChange={(event) => props.onThemeChange(event.currentTarget.value as ThemePreference)}
-        title="Theme"
-      >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-      <span className="theme-icon" aria-hidden="true">
-        {props.theme === "dark" ? <Moon size={16} /> : <Sun size={16} />}
-      </span>
+        <div className="theme-menu">
+          <Sparkles size={15} aria-hidden="true" />
+          <select
+            value={props.theme}
+            onChange={(event) => props.onThemeChange(event.currentTarget.value as ThemePreference)}
+            title="Theme"
+          >
+            {themes.map((theme) => (
+              <option key={theme.value} value={theme.value}>
+                {theme.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button className="icon-button" title={`Settings and app info, mdview ${props.appVersion}`} onClick={props.onOpenSettings}>
+          <Settings2 size={18} />
+        </button>
+      </div>
     </header>
   );
 }

@@ -19,8 +19,8 @@ Included now:
 - Drag-and-drop Markdown file opening.
 - GitHub-flavored Markdown rendering.
 - Sanitized preview HTML.
-- Mermaid fenced block rendering from bundled app assets.
-- Light, dark, and system theme preference.
+- Mermaid fenced block rendering plus standalone Mermaid block promotion from bundled app assets.
+- System, light, dark, paper, midnight, and sage theme preferences.
 - Recent files persisted locally.
 - Search highlighting in the rendered document.
 - Sync scrolling in split mode.

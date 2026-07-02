@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
+import packageInfo from "../package.json";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
@@ -37,6 +38,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [systemDark, setSystemDark] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
   const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
@@ -45,7 +47,16 @@ export default function App() {
   const dirtyRef = useRef(documentState.dirty);
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
+  const previewTheme = actualTheme === "light" || actualTheme === "paper" ? "light" : "dark";
   const hasDocument = documentState.isOpen;
+  const searchMatchCount = useMemo(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      return 0;
+    }
+
+    return (documentState.markdown.match(new RegExp(escapeRegExp(query), "gi")) ?? []).length;
+  }, [documentState.markdown, searchQuery]);
 
   useEffect(() => {
     loadSettings()
@@ -300,12 +311,15 @@ export default function App() {
         mode={settings.viewMode}
         theme={settings.theme}
         query={searchQuery}
+        searchMatchCount={searchMatchCount}
         syncScroll={settings.syncScroll}
+        appVersion={packageInfo.version}
         onNewFile={handleNewFile}
         onOpen={handleOpen}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
         onPrint={() => window.print()}
+        onOpenSettings={() => setSettingsOpen(true)}
         onModeChange={(viewMode: ViewMode) => updateSettings({ viewMode })}
         onThemeChange={(theme: ThemePreference) => updateSettings({ theme })}
         onQueryChange={setSearchQuery}
@@ -319,8 +333,9 @@ export default function App() {
 
       <section className={`workspace mode-${settings.viewMode}`} data-empty={emptyState}>
         {emptyState ? (
-          <div className="preview-scroll">
-            <div className="empty-state">
+          <div className="preview-scroll empty-scroll">
+            <div className="empty-state app-entrance">
+              <p className="eyebrow">Local Markdown workspace</p>
               <h1>Open Markdown File</h1>
               <p>Drag and drop a Markdown file here.</p>
               <div className="empty-actions">
@@ -339,22 +354,30 @@ export default function App() {
         ) : null}
 
         {!emptyState && (settings.viewMode === "split" || settings.viewMode === "source") && (
-          <textarea
-            ref={sourceRef}
-            className="source-pane"
-            value={documentState.markdown}
-            placeholder="Markdown source"
-            spellCheck={false}
-            onScroll={onSourceScroll}
-            onChange={(event) => {
-              const markdown = event.currentTarget.value;
-              setDocumentState((current) => ({
-                ...current,
-                markdown,
-                dirty: true
-              }));
-            }}
-          />
+          <div className="source-wrap">
+            {!documentState.path && documentState.markdown.length === 0 ? (
+              <div className="draft-callout">
+                <p className="eyebrow">New file</p>
+                <h2>Start with a heading, paste notes, or drop in a Mermaid sketch.</h2>
+              </div>
+            ) : null}
+            <textarea
+              ref={sourceRef}
+              className="source-pane"
+              value={documentState.markdown}
+              placeholder="Markdown source"
+              spellCheck={false}
+              onScroll={onSourceScroll}
+              onChange={(event) => {
+                const markdown = event.currentTarget.value;
+                setDocumentState((current) => ({
+                  ...current,
+                  markdown,
+                  dirty: true
+                }));
+              }}
+            />
+          </div>
         )}
 
         {!emptyState && (settings.viewMode === "reader" || settings.viewMode === "split") && (
@@ -362,12 +385,83 @@ export default function App() {
             <Preview
               markdown={documentState.markdown}
               filePath={documentState.path}
-              theme={actualTheme}
+              theme={previewTheme}
               searchQuery={searchQuery}
             />
           </div>
         )}
       </section>
+
+      {settingsOpen ? (
+        <div className="settings-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
+          <aside
+            className="settings-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">Preferences</p>
+                <h2 id="settings-title">Settings</h2>
+              </div>
+              <button className="icon-button" onClick={() => setSettingsOpen(false)} title="Close settings">
+                x
+              </button>
+            </div>
+
+            <section className="settings-section">
+              <h3>Theme</h3>
+              <div className="theme-grid">
+                {(["system", "dark", "light", "paper", "midnight", "sage"] as const).map((theme) => (
+                  <button
+                    key={theme}
+                    className={settings.theme === theme ? "selected" : ""}
+                    onClick={() => updateSettings({ theme })}
+                  >
+                    <span className={`theme-swatch theme-swatch-${theme}`} />
+                    <span>{themeLabel(theme)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="settings-section">
+              <h3>Editor</h3>
+              <button
+                className={`setting-row ${settings.syncScroll ? "selected" : ""}`}
+                onClick={() => updateSettings({ syncScroll: !settings.syncScroll })}
+              >
+                <span>Sync source and reader scroll</span>
+                <strong>{settings.syncScroll ? "On" : "Off"}</strong>
+              </button>
+              <button className="setting-row" disabled title="Raw HTML remains sanitized in this release">
+                <span>Trusted HTML rendering</span>
+                <strong>Locked</strong>
+              </button>
+            </section>
+
+            <section className="settings-section app-info">
+              <h3>App</h3>
+              <dl>
+                <div>
+                  <dt>Version</dt>
+                  <dd>{packageInfo.version}</dd>
+                </div>
+                <div>
+                  <dt>Renderer</dt>
+                  <dd>React + Tauri</dd>
+                </div>
+                <div>
+                  <dt>Mermaid</dt>
+                  <dd>Strict mode</dd>
+                </div>
+              </dl>
+            </section>
+          </aside>
+        </div>
+      ) : null}
 
       {pendingActionLabel ? (
         <div className="modal-backdrop" role="presentation">
@@ -394,4 +488,21 @@ export default function App() {
       ) : null}
     </main>
   );
+}
+
+function themeLabel(theme: ThemePreference) {
+  const labels: Record<ThemePreference, string> = {
+    system: "System",
+    light: "Quartz",
+    dark: "Graphite",
+    paper: "Paper",
+    midnight: "Midnight",
+    sage: "Sage"
+  };
+
+  return labels[theme];
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
