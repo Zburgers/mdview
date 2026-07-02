@@ -57,12 +57,80 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   width: 100%;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
+}
+
+.window-titlebar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 28%);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel), var(--bg) 24%), var(--panel));
+  user-select: none;
+  z-index: 2;
+}
+
+.window-drag-region {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 10px 0 12px;
+  cursor: default;
+}
+
+.window-brand {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.window-file-title {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+}
+
+.window-control-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 38px;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border), transparent 52%);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.window-control-button:hover {
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+  color: var(--text);
+}
+
+.window-control-button.close:hover {
+  background: #c73b31;
+  color: #ffffff;
 }
 
 .modal-backdrop {
@@ -127,32 +195,13 @@ button {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto auto minmax(120px, 240px) auto auto auto;
+  grid-template-columns: auto auto minmax(120px, 240px) auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   z-index: 1;
-}
-
-.title-group {
-  min-width: 0;
-}
-
-.app-mark {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0;
-  color: var(--accent);
-  text-transform: uppercase;
-}
-
-.file-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 650;
 }
 
 .toolbar-actions,
@@ -493,7 +542,7 @@ button {
 
 @media (max-width: 860px) {
   .toolbar {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
   .search-box,
@@ -520,6 +569,7 @@ button {
   }
 
   .toolbar,
+  .window-titlebar,
   .status-bar,
   .source-pane {
     display: none !important;
