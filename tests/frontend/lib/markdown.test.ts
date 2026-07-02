@@ -3,6 +3,7 @@ import {
   getMarkdownFileName,
   isMarkdownLikePath,
   normalizeMarkdownText,
+  promoteStandaloneMermaid,
   renderMarkdown,
   sanitizeMermaidSvg
 } from "../../../src/lib/markdown";
@@ -43,5 +44,17 @@ describe("markdown helpers", () => {
     expect(svg).not.toContain("foreignObject");
     expect(svg).not.toContain("onload=");
     expect(svg).not.toContain("javascript:alert");
+  });
+
+  it("promotes standalone mermaid flowcharts into fenced mermaid blocks", () => {
+    const promoted = promoteStandaloneMermaid(
+      "## Endpoints\n\n" +
+        "graph TD\n" +
+        "  A[Start] --> B{Is it raining?}\n" +
+        "  B -- Yes --> C[Bring an umbrella]\n" +
+        "  B -- No --> D[Enjoy your day]\n"
+    );
+
+    expect(promoted).toContain("```mermaid\ngraph TD\n  A[Start] --> B{Is it raining?}");
   });
 });
