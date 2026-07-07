@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>mdview.desktop</id>
+  <name>mdview</name>
+  <summary>Local-first Markdown viewer for reading and editing Markdown files</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="dev.zburgers">
+    <name>Zburgers</name>
+  </developer>
+  <launchable type="desktop-id">mdview.desktop</launchable>
+  <description>
+    <p>
+      mdview is a local-first Markdown desktop app with native file dialogs,
+      split source and preview workflows, Mermaid rendering, recent files, and
+      print-friendly output.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/Zburgers/mdview</url>
+  <categories>
+    <category>Office</category>
+    <category>TextEditor</category>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+</component>
