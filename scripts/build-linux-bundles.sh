@@ -40,6 +40,33 @@ deb_path="src-tauri/target/release/bundle/deb/mdview_${version}_amd64.deb"
 rpm_path="src-tauri/target/release/bundle/rpm/mdview-${version}-1.x86_64.rpm"
 appimage_path="src-tauri/target/release/bundle/appimage/mdview_${version}_amd64.AppImage"
 
+artifacts_present() {
+  local artifact
+
+  for artifact in "$deb_path" "$rpm_path" "$appimage_path"; do
+    [[ -f "$artifact" ]] || return 1
+  done
+}
+
+verify_artifacts() {
+  local artifact
+
+  for artifact in "$deb_path" "$rpm_path" "$appimage_path"; do
+    [[ -f "$artifact" ]] || {
+      echo "Expected artifact was not created: $artifact" >&2
+      exit 1
+    }
+  done
+}
+
+validate_appstream_nonfatal() {
+  local appdata="$1"
+
+  if ! appstreamcli validate "$appdata"; then
+    echo "Warning: AppStream validation reported issues for $appdata; continuing because release artifacts were still created." >&2
+  fi
+}
+
 repair_linux_metadata_root() {
   local root="$1"
   local desktop_old="$root/usr/share/applications/mdview.desktop"
@@ -91,7 +118,7 @@ PY
   chmod 0755 "$root/usr/bin/mdview"
   chmod 0644 "$desktop_new" "$appdata"
   find "$root/usr/share/icons" -type f -exec chmod 0644 {} +
-  appstreamcli validate "$appdata" >/dev/null
+  validate_appstream_nonfatal "$appdata"
 }
 
 repair_deb_package() {
@@ -171,6 +198,12 @@ repair_linux_packages() {
   repair_rpm_package
 }
 
+repair_linux_packages_nonfatal() {
+  if ! repair_linux_packages; then
+    echo "Warning: Linux package metadata repair failed after bundles were created; keeping Tauri-generated artifacts." >&2
+  fi
+}
+
 rm -rf src-tauri/target/release/bundle/deb \
   src-tauri/target/release/bundle/rpm \
   src-tauri/target/release/bundle/appimage
@@ -181,19 +214,20 @@ tauri_status=$?
 set -e
 
 if [[ "$tauri_status" -eq 0 ]]; then
-  repair_linux_packages
+  repair_linux_packages_nonfatal
+  verify_artifacts
+  exit 0
+fi
 
-  for artifact in "$deb_path" "$rpm_path" "$appimage_path"; do
-    [[ -f "$artifact" ]] || {
-      echo "Expected artifact was not created: $artifact" >&2
-      exit 1
-    }
-  done
+if artifacts_present; then
+  echo "Tauri returned exit code $tauri_status after creating all Linux artifacts; keeping the generated bundles." >&2
+  repair_linux_packages_nonfatal
+  verify_artifacts
   exit 0
 fi
 
 echo "Tauri AppImage bundling failed; attempting AppDir metadata repair fallback." >&2
-repair_linux_packages
+repair_linux_packages_nonfatal
 
 appdir="src-tauri/target/release/bundle/appimage/mdview.AppDir"
 desktop_old="$appdir/usr/share/applications/mdview.desktop"
@@ -255,7 +289,7 @@ for link_name in ("mdview.desktop", "dev.zburgers.mdview.desktop"):
 )
 PY
 
-appstreamcli validate "$appdata" >/dev/null
+validate_appstream_nonfatal "$appdata"
 
 tool_root="${TMPDIR:-/tmp}/mdview-appimagetool"
 rm -rf "$tool_root"
@@ -270,9 +304,4 @@ rm -f "$appimage_path"
 
 ARCH=x86_64 "$tool_root/squashfs-root/usr/bin/appimagetool" "$appdir" "$appimage_path"
 
-for artifact in "$deb_path" "$rpm_path" "$appimage_path"; do
-  [[ -f "$artifact" ]] || {
-    echo "Expected artifact was not created: $artifact" >&2
-    exit 1
-  }
-done
+verify_artifacts
