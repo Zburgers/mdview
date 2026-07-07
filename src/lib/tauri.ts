@@ -43,3 +43,7 @@ export function loadSettings(): Promise<AppSettings> {
 export function saveSettings(settings: AppSettings): Promise<void> {
   return invoke("save_settings", { settings });
 }
+
+export function startupOpenFile(): Promise<string | null> {
+  return invoke("startup_open_file");
+}

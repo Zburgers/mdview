@@ -1,12 +1,12 @@
 [package]
 name = "mdview"
-version = "1.2.0"
+version = "1.2.1"
 description = "A tiny, fast, local-first Markdown reader."
 authors = ["Zburgers"]
 license = "MIT"
 repository = "https://github.com/Zburgers/mdview"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.77.2"
 
 [lib]
 name = "mdview_lib"
@@ -22,3 +22,6 @@ tauri = { version = "2.9.1", features = [] }
 tauri-plugin-dialog = "2.4.1"
 tauri-plugin-opener = "2.5.0"
 thiserror = "2.0"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2.4.2"

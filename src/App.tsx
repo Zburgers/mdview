@@ -13,6 +13,7 @@ import {
   readMarkdownFile,
   saveMarkdownDialog,
   saveSettings,
+  startupOpenFile,
   writeMarkdownFile
 } from "./lib/tauri";
 import type { AppSettings, MarkdownDocument, ThemePreference, ViewMode } from "./types";
@@ -90,7 +91,7 @@ export default function App() {
     const unlistenPromise = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
       const candidate = event.payload.paths.find(isMarkdownLikePath);
       if (candidate) {
-        void guardDocumentTransition(`open ${getMarkdownFileName(candidate)}`, () => openPath(candidate));
+        void openExternalPath(candidate);
       }
     });
     return () => {
@@ -101,10 +102,21 @@ export default function App() {
   useEffect(() => {
     const unlistenPromise = listen<string>("cli-open-file", (event) => {
       const filePath = event.payload;
-      if (filePath && isMarkdownLikePath(filePath)) {
-        void openPath(filePath);
+      if (filePath) {
+        void openExternalPath(filePath);
       }
     });
+
+    void unlistenPromise.then(() => {
+      void startupOpenFile()
+        .then((filePath) => {
+          if (filePath) {
+            void openExternalPath(filePath);
+          }
+        })
+        .catch(() => undefined);
+    });
+
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
     };
@@ -232,6 +244,21 @@ export default function App() {
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not open file.");
     }
+  }
+
+  async function openExternalPath(path: string) {
+    if (!isMarkdownLikePath(path)) {
+      setStatus("Only Markdown or text-like files can be opened.");
+      return;
+    }
+
+    const open = () => openPath(path);
+    if (dirtyRef.current) {
+      await queuePendingAction(`open ${getMarkdownFileName(path)}`, open);
+      return;
+    }
+
+    await open();
   }
 
   function resetToNewFile() {

@@ -6,8 +6,13 @@ import {
   loadSettings,
   openMarkdownDialog,
   readMarkdownFile,
+  startupOpenFile,
   writeMarkdownFile
 } from "../../../src/lib/tauri";
+
+const eventMocks = vi.hoisted(() => ({
+  listeners: new Map<string, (event: { payload: unknown }) => void>()
+}));
 
 const closeMock = vi.fn(() => Promise.resolve());
 const destroyMock = vi.fn(() => Promise.resolve());
@@ -17,7 +22,10 @@ const startDraggingMock = vi.fn(() => Promise.resolve());
 const toggleMaximizeMock = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => undefined))
+  listen: vi.fn((event: string, handler: (event: { payload: unknown }) => void) => {
+    eventMocks.listeners.set(event, handler);
+    return Promise.resolve(() => eventMocks.listeners.delete(event));
+  })
 }));
 
 vi.mock("@tauri-apps/api/window", () => ({
@@ -45,6 +53,7 @@ vi.mock("../../../src/lib/tauri", () => ({
   readMarkdownFile: vi.fn(),
   saveMarkdownDialog: vi.fn(),
   saveSettings: vi.fn(() => Promise.resolve()),
+  startupOpenFile: vi.fn(),
   writeMarkdownFile: vi.fn()
 }));
 
@@ -66,6 +75,7 @@ describe("App desktop layout", () => {
       syncScroll: false
     });
     vi.mocked(openMarkdownDialog).mockResolvedValue(null);
+    vi.mocked(startupOpenFile).mockResolvedValue(null);
     vi.mocked(readMarkdownFile).mockResolvedValue({
       path: "/tmp/example.md",
       contents: "# Example",
@@ -79,6 +89,7 @@ describe("App desktop layout", () => {
     minimizeMock.mockClear();
     startDraggingMock.mockClear();
     toggleMaximizeMock.mockClear();
+    eventMocks.listeners.clear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: matchMediaMock
@@ -169,6 +180,42 @@ describe("App desktop layout", () => {
     fireEvent.change(sourcePane, { target: { value: "" } });
     expect(sourcePane).toHaveValue("");
     expect(screen.queryByRole("heading", { name: "Open Markdown File" })).not.toBeInTheDocument();
+  });
+
+  it("opens the startup file supplied by the desktop file association", async () => {
+    vi.mocked(startupOpenFile).mockResolvedValue("/home/naki/notes/launch.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/home/naki/notes/launch.md",
+      contents: "# Opened from Files",
+      lossy: false
+    });
+
+    render(<App />);
+
+    expect(await screen.findByTestId("preview")).toHaveTextContent("# Opened from Files");
+    expect(readMarkdownFile).toHaveBeenCalledWith("/home/naki/notes/launch.md");
+    expect(screen.getByTestId("window-file-title")).toHaveTextContent("launch.md");
+  });
+
+  it("prompts before replacing unsaved changes from a later native open event", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
+
+    eventMocks.listeners.get("cli-open-file")?.({ payload: "/home/naki/notes/later.md" });
+
+    expect(await screen.findByRole("dialog", { name: "Save changes?" })).toBeInTheDocument();
+    expect(readMarkdownFile).not.toHaveBeenCalledWith("/home/naki/notes/later.md");
+
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/home/naki/notes/later.md",
+      contents: "# Later",
+      lossy: false
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Don't Save" }));
+
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Later");
   });
 
   it("prompts before discarding unsaved changes when opening another file", async () => {
