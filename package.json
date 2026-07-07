@@ -1,6 +1,6 @@
 {
   "name": "mdview",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A tiny, fast, local-first Markdown reader built with Tauri.",
   "type": "module",
   "private": true,

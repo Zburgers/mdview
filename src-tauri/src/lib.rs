@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize)]
 struct ReadFileResponse {
@@ -50,10 +50,37 @@ fn read_markdown_file(path: String) -> Result<ReadFileResponse, String> {
 }
 
 #[tauri::command]
-fn write_markdown_file(path: String, contents: String) -> Result<(), String> {
-    let path_buf = normalize_user_file_path(&path)?;
+fn write_markdown_file(path: String, contents: String) -> Result<String, String> {
+    let mut path_buf = normalize_user_file_path(&path)?;
+
+    // Auto-append .md if no recognized extension
+    let needs_extension = match path_buf
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some(ext) => !["md", "markdown", "mdown", "mkd", "txt", "text"].contains(&ext),
+        None => true,
+    };
+
+    if needs_extension {
+        let mut name = path_buf.as_os_str().to_os_string();
+        name.push(".md");
+        path_buf = PathBuf::from(name);
+    }
+
     ensure_markdown_like(&path_buf)?;
-    fs::write(&path_buf, contents).map_err(|error| format!("Could not save file: {error}"))
+
+    if let Some(parent) = path_buf.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Could not create directory: {error}"))?;
+        }
+    }
+
+    fs::write(&path_buf, contents).map_err(|error| format!("Could not save file: {error}"))?;
+    Ok(path_buf.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -113,6 +140,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // Handle CLI file argument ("Open With" on desktop)
+            if let Some(file_path) = std::env::args().skip(1).find(|arg| !arg.starts_with("--")) {
+                app.emit("cli-open-file", file_path)?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             read_markdown_file,
             write_markdown_file,

@@ -43,6 +43,7 @@ export default function App() {
   const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
   const dirtyRef = useRef(documentState.dirty);
 
@@ -98,6 +99,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unlistenPromise = listen<string>("cli-open-file", (event) => {
+      const filePath = event.payload;
+      if (filePath && isMarkdownLikePath(filePath)) {
+        void openPath(filePath);
+      }
+    });
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
     const appWindow = getCurrentWindow();
     const destroyWindow = async () => {
       try {
@@ -144,6 +157,51 @@ export default function App() {
       sourceRef.current?.focus();
     }
   }, [hasDocument, settings.viewMode]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod) {
+        return;
+      }
+
+      switch (event.key.toLowerCase()) {
+        case "n":
+          event.preventDefault();
+          handleNewFile();
+          break;
+        case "o":
+          event.preventDefault();
+          void handleOpen();
+          break;
+        case "s":
+          event.preventDefault();
+          if (event.shiftKey) {
+            void handleSaveAs();
+          } else {
+            void handleSave();
+          }
+          break;
+        case "p":
+          event.preventDefault();
+          handlePrint();
+          break;
+        case "f":
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+        case ",":
+          event.preventDefault();
+          setSettingsOpen(true);
+          break;
+        default:
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [documentState, settings]);
 
   async function openPath(path: string) {
     if (!isMarkdownLikePath(path)) {
@@ -239,8 +297,13 @@ export default function App() {
   async function handleSave(): Promise<boolean> {
     try {
       if (documentState.path) {
-        await writeMarkdownFile(documentState.path, documentState.markdown);
-        setDocumentState((current) => ({ ...current, dirty: false }));
+        const savedPath = await writeMarkdownFile(documentState.path, documentState.markdown);
+        setDocumentState((current) => ({
+          ...current,
+          path: savedPath,
+          name: getMarkdownFileName(savedPath),
+          dirty: false
+        }));
         setStatus("Saved.");
         return true;
       }
@@ -260,18 +323,39 @@ export default function App() {
     }
 
     try {
-      await writeMarkdownFile(selected, documentState.markdown);
+      const savedPath = await writeMarkdownFile(selected, documentState.markdown);
       setDocumentState((current) => ({
         ...current,
-        path: selected,
-        name: getMarkdownFileName(selected),
+        path: savedPath,
+        name: getMarkdownFileName(savedPath),
         dirty: false
+      }));
+      setSettings((prev) => ({
+        ...prev,
+        recentFiles: [savedPath, ...prev.recentFiles.filter((f) => f !== savedPath)].slice(0, 10)
       }));
       setStatus("Saved.");
       return true;
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not save file.");
       return false;
+    }
+  }
+
+  function handlePrint() {
+    if (!hasDocument) {
+      return;
+    }
+
+    const previousMode = settings.viewMode;
+    if (previousMode === "source") {
+      updateSettings({ viewMode: "reader" });
+      requestAnimationFrame(() => {
+        window.print();
+        updateSettings({ viewMode: previousMode });
+      });
+    } else {
+      window.print();
     }
   }
 
@@ -318,8 +402,9 @@ export default function App() {
         onOpen={handleOpen}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
-        onPrint={() => window.print()}
+        onPrint={handlePrint}
         onOpenSettings={() => setSettingsOpen(true)}
+        searchInputRef={searchInputRef}
         onModeChange={(viewMode: ViewMode) => updateSettings({ viewMode })}
         onThemeChange={(theme: ThemePreference) => updateSettings({ theme })}
         onQueryChange={setSearchQuery}

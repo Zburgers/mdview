@@ -71,7 +71,7 @@ describe("App desktop layout", () => {
       contents: "# Example",
       lossy: false
     });
-    vi.mocked(writeMarkdownFile).mockResolvedValue();
+    vi.mocked(writeMarkdownFile).mockResolvedValue("/tmp/example.md");
     closeMock.mockClear();
     onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
