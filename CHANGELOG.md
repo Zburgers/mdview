@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.2.2] - 2026-07-07
+## [1.2.2]
+
+_Released: 2026-07-07_
 
 ### Added
 - **Three Premium Themes**:
