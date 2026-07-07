@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { type RefObject, useState, useEffect, useRef } from "react";
 import {
   Columns2,
   Download,
@@ -12,7 +12,8 @@ import {
   Settings2,
   Sparkles,
   Trash2,
-  Zap
+  Zap,
+  ChevronDown
 } from "lucide-react";
 import type { ThemePreference, ViewMode } from "../types";
 
@@ -44,11 +45,14 @@ const modes: Array<{ value: ViewMode; label: string; icon: typeof FileText }> = 
 
 const themes: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: "System" },
-  { value: "dark", label: "Graphite" },
   { value: "light", label: "Quartz" },
+  { value: "dark", label: "Graphite" },
   { value: "paper", label: "Paper" },
   { value: "midnight", label: "Midnight" },
-  { value: "sage", label: "Sage" }
+  { value: "sage", label: "Sage" },
+  { value: "nordic", label: "Nordic" },
+  { value: "velvet", label: "Velvet" },
+  { value: "crimson", label: "Crimson" }
 ];
 
 export function Toolbar(props: ToolbarProps) {
@@ -112,20 +116,7 @@ export function Toolbar(props: ToolbarProps) {
           <span>Sync</span>
         </button>
 
-        <div className="theme-menu">
-          <Sparkles size={15} aria-hidden="true" />
-          <select
-            value={props.theme}
-            onChange={(event) => props.onThemeChange(event.currentTarget.value as ThemePreference)}
-            title="Theme"
-          >
-            {themes.map((theme) => (
-              <option key={theme.value} value={theme.value}>
-                {theme.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <ThemeDropdown theme={props.theme} onThemeChange={props.onThemeChange} />
 
         <button className="icon-button" title={`Settings and app info, mdview ${props.appVersion}`} onClick={props.onOpenSettings}>
           <Settings2 size={18} />
@@ -149,19 +140,87 @@ export function RecentFiles({ files, onOpen, onClear }: RecentFilesProps) {
   return (
     <section className="recent-files">
       <div className="recent-header">
-        <h2>Recent files</h2>
-        <button className="icon-button" title="Clear recent files" onClick={onClear}>
-          <Trash2 size={16} />
+        <h2>Recent Files</h2>
+        <button className="icon-button" title="Clear recent files" onClick={onClear} style={{ width: 28, height: 28 }}>
+          <Trash2 size={13} />
         </button>
       </div>
       <div className="recent-list">
         {files.map((file) => (
           <button key={file} onClick={() => onOpen(file)}>
-            <span>{file.split(/[\\/]/).pop()}</span>
-            <small>{file}</small>
+            <div className="recent-item-icon" style={{ display: "flex", alignItems: "center", color: "var(--accent)" }}>
+              <FileText size={16} />
+            </div>
+            <div className="recent-item-meta">
+              <span>{file.split(/[\\/]/).pop()}</span>
+              <small title={file}>{file}</small>
+            </div>
           </button>
         ))}
       </div>
     </section>
   );
 }
+
+type ThemeDropdownProps = {
+  theme: ThemePreference;
+  onThemeChange: (theme: ThemePreference) => void;
+};
+
+export function ThemeDropdown({ theme, onThemeChange }: ThemeDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const currentTheme = themes.find((t) => t.value === theme) || themes[0];
+
+  return (
+    <div className="custom-dropdown" ref={containerRef}>
+      <button
+        type="button"
+        className="dropdown-trigger"
+        onClick={() => setIsOpen(!isOpen)}
+        title="Select Theme"
+      >
+        <span className={`theme-swatch theme-swatch-${theme}`} aria-hidden="true" />
+        <span className="dropdown-label">{currentTheme.label}</span>
+        <ChevronDown size={14} className={`chevron-icon ${isOpen ? "open" : ""}`} />
+      </button>
+
+      {isOpen && (
+        <ul className="dropdown-menu">
+          {themes.map((t) => (
+            <li key={t.value}>
+              <button
+                type="button"
+                className={`dropdown-item ${theme === t.value ? "selected" : ""}`}
+                onClick={() => {
+                  onThemeChange(t.value);
+                  setIsOpen(false);
+                }}
+              >
+                <span className={`theme-swatch theme-swatch-${t.value}`} aria-hidden="true" />
+                <span>{t.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+

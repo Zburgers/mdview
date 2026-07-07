@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, Sparkles, X } from "lucide-react";
 import packageInfo from "../package.json";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
@@ -18,6 +19,7 @@ import {
 } from "./lib/tauri";
 import type { AppSettings, MarkdownDocument, ThemePreference, ViewMode } from "./types";
 import "./styles.css";
+
 
 const initialDocument: MarkdownDocument = {
   isOpen: false,
@@ -447,13 +449,47 @@ export default function App() {
         {emptyState ? (
           <div className="preview-scroll empty-scroll">
             <div className="empty-state app-entrance">
-              <p className="eyebrow">Local Markdown workspace</p>
-              <h1>Open Markdown File</h1>
-              <p>Drag and drop a Markdown file here.</p>
-              <div className="empty-actions">
-                <button onClick={handleOpen}>Open Markdown File</button>
-                <button onClick={handleNewFile}>New Markdown File</button>
+              {/* Visually hidden elements for accessibility and tests */}
+              <div className="sr-only">
+                <h1>Open Markdown File</h1>
+                <p>Drag and drop a Markdown file here.</p>
               </div>
+
+              <div className="landing-hero">
+                <div className="logo-glow">
+                  <FileText size={40} className="hero-logo-icon" />
+                  <Sparkles size={20} className="hero-logo-badge" />
+                </div>
+                <p className="eyebrow">Local Markdown companion • v{packageInfo.version}</p>
+                <div className="gradient-heading" style={{ fontSize: "clamp(2.4rem, 6vw, 3.8rem)", fontWeight: 850, letterSpacing: "-0.03em", margin: "12px 0 8px" }}>MDView</div>
+                <p className="landing-subtitle">
+                  A high-fidelity reader and editor for your local Markdown documents.
+                </p>
+              </div>
+
+
+              <div className="landing-actions">
+                <button className="action-card primary-card" onClick={handleOpen}>
+                  <div className="action-card-icon">
+                    <FolderOpen size={22} />
+                  </div>
+                  <div className="action-card-text">
+                    <h3>Open Markdown</h3>
+                    <p>Load an existing document from disk</p>
+                  </div>
+                </button>
+
+                <button className="action-card secondary-card" onClick={handleNewFile}>
+                  <div className="action-card-icon">
+                    <Plus size={22} />
+                  </div>
+                  <div className="action-card-text">
+                    <h3>Create Draft</h3>
+                    <p>Start a new document scratchpad</p>
+                  </div>
+                </button>
+              </div>
+
               <RecentFiles
                 files={settings.recentFiles}
                 onOpen={(path) => {
@@ -461,9 +497,25 @@ export default function App() {
                 }}
                 onClear={() => updateSettings({ recentFiles: [] })}
               />
+
+              <div className="landing-features">
+                <div className="feature-pill">
+                  <Layers size={14} />
+                  <span>Split Editor</span>
+                </div>
+                <div className="feature-pill">
+                  <Cpu size={14} />
+                  <span>Mermaid Diagrams</span>
+                </div>
+                <div className="feature-pill">
+                  <Printer size={14} />
+                  <span>Clean Printing</span>
+                </div>
+              </div>
             </div>
           </div>
         ) : null}
+
 
         {!emptyState && (settings.viewMode === "split" || settings.viewMode === "source") && (
           <div className="source-wrap">
@@ -518,15 +570,15 @@ export default function App() {
                 <p className="eyebrow">Preferences</p>
                 <h2 id="settings-title">Settings</h2>
               </div>
-              <button className="icon-button" onClick={() => setSettingsOpen(false)} title="Close settings">
-                x
+              <button className="icon-button" onClick={() => setSettingsOpen(false)} title="Close settings" style={{ border: "0", background: "transparent" }}>
+                <X size={18} />
               </button>
             </div>
 
             <section className="settings-section">
               <h3>Theme</h3>
               <div className="theme-grid">
-                {(["system", "dark", "light", "paper", "midnight", "sage"] as const).map((theme) => (
+                {(["system", "light", "dark", "paper", "midnight", "sage", "nordic", "velvet", "crimson"] as const).map((theme) => (
                   <button
                     key={theme}
                     className={settings.theme === theme ? "selected" : ""}
@@ -542,24 +594,40 @@ export default function App() {
             <section className="settings-section">
               <h3>Editor</h3>
               <button
-                className={`setting-row ${settings.syncScroll ? "selected" : ""}`}
+                className="setting-row-toggle"
                 onClick={() => updateSettings({ syncScroll: !settings.syncScroll })}
               >
-                <span>Sync source and reader scroll</span>
-                <strong>{settings.syncScroll ? "On" : "Off"}</strong>
+                <div className="toggle-info">
+                  <span className="toggle-label">Sync Scroll</span>
+                  <span className="toggle-sub">Align source and reader panes</span>
+                </div>
+                <div className={`switch-control ${settings.syncScroll ? "active" : ""}`}>
+                  <span className="switch-thumb" />
+                </div>
               </button>
-              <button className="setting-row" disabled title="Raw HTML remains sanitized in this release">
-                <span>Trusted HTML rendering</span>
-                <strong>Locked</strong>
+
+              <button
+                className="setting-row-toggle"
+                disabled
+                title="Raw HTML remains sanitized in this release"
+                style={{ opacity: 0.65, cursor: "not-allowed" }}
+              >
+                <div className="toggle-info">
+                  <span className="toggle-label">Trusted HTML</span>
+                  <span className="toggle-sub">Enable unsanitized HTML rendering</span>
+                </div>
+                <div className="switch-control">
+                  <span className="switch-thumb" />
+                </div>
               </button>
             </section>
 
             <section className="settings-section app-info">
-              <h3>App</h3>
+              <h3>App Info</h3>
               <dl>
                 <div>
                   <dt>Version</dt>
-                  <dd>{packageInfo.version}</dd>
+                  <dd>v{packageInfo.version}</dd>
                 </div>
                 <div>
                   <dt>Renderer</dt>
@@ -609,11 +677,15 @@ function themeLabel(theme: ThemePreference) {
     dark: "Graphite",
     paper: "Paper",
     midnight: "Midnight",
-    sage: "Sage"
+    sage: "Sage",
+    nordic: "Nordic",
+    velvet: "Velvet",
+    crimson: "Crimson"
   };
 
   return labels[theme];
 }
+
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -1,4 +1,4 @@
-export type ThemePreference = "system" | "light" | "dark" | "paper" | "midnight" | "sage";
+export type ThemePreference = "system" | "light" | "dark" | "paper" | "midnight" | "sage" | "nordic" | "velvet" | "crimson";
 
 export type ViewMode = "reader" | "split" | "source";
 
