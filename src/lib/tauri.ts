@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AppSettings, ReadFileResponse } from "../types";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
+import type { AppSettings, ReadFileResponse, UpdateCheckResult } from "../types";
 
 const markdownFilters = [
   {
@@ -46,4 +49,36 @@ export function saveSettings(settings: AppSettings): Promise<void> {
 
 export function startupOpenFile(): Promise<string | null> {
   return invoke("startup_open_file");
+}
+
+export function openMarkdownWindow(path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const label = `mdview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const window = new WebviewWindow(label, {
+      url: `/?file=${encodeURIComponent(path)}`,
+      title: "mdview",
+      width: 1180,
+      height: 760,
+      minWidth: 720,
+      minHeight: 520,
+      dragDropEnabled: true,
+      decorations: false
+    });
+
+    void window.once("tauri://created", () => resolve());
+    void window.once("tauri://error", (event) => reject(event.payload));
+  });
+}
+
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  const update = await check();
+
+  if (!update) {
+    return { status: "current" };
+  }
+
+  await update.downloadAndInstall();
+  await relaunch();
+
+  return { status: "installed", version: update.version };
 }

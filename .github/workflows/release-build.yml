@@ -2,10 +2,11 @@ name: Release Build
 
 on:
   push:
-    branches: [main, tauri-v2]
+    branches: [main]
     tags:
       - "v*"
   pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       publish_release:
@@ -106,17 +107,37 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: ./scripts/build-linux-bundles.sh
         if: matrix.platform == 'linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - run: pnpm tauri build --bundles ${{ matrix.bundles }}
         if: matrix.platform != 'linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Record updater target
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          case "${{ runner.arch }}" in
+            ARM64) echo "darwin-aarch64" > updater-target-macos.txt ;;
+            X64) echo "darwin-x86_64" > updater-target-macos.txt ;;
+            *) echo "Unsupported macOS runner arch: ${{ runner.arch }}" >&2; exit 1 ;;
+          esac
       - uses: actions/upload-artifact@v4
         with:
           name: mdview-${{ matrix.platform }}
           path: |
             src-tauri/target/release/bundle/**/*.AppImage
+            src-tauri/target/release/bundle/**/*.AppImage.sig
             src-tauri/target/release/bundle/**/*.deb
             src-tauri/target/release/bundle/**/*.rpm
             src-tauri/target/release/bundle/**/*.exe
+            src-tauri/target/release/bundle/**/*.exe.sig
             src-tauri/target/release/bundle/**/*.dmg
+            src-tauri/target/release/bundle/**/*.app.tar.gz
+            src-tauri/target/release/bundle/**/*.app.tar.gz.sig
+            updater-target-*.txt
           if-no-files-found: error
 
   publish-release:
@@ -146,6 +167,7 @@ jobs:
           fi
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
           notes_file="RELEASE_NOTES.md"
           {
@@ -168,6 +190,14 @@ jobs:
           merge-multiple: true
       - name: List release assets
         run: find release-assets -maxdepth 5 -type f -print | sort
+      - name: Generate updater manifest
+        run: |
+          node scripts/create-updater-manifest.mjs \
+            --version "${{ steps.release.outputs.version }}" \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --assets-dir release-assets \
+            --output latest.json
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
@@ -183,3 +213,6 @@ jobs:
             release-assets/**/*.rpm
             release-assets/**/*.exe
             release-assets/**/*.dmg
+            release-assets/**/*.sig
+            release-assets/**/*.app.tar.gz
+            latest.json

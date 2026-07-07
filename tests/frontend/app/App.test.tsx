@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../../src/App";
 import { defaultSettings } from "../../../src/lib/defaults";
 import {
+  checkForUpdates,
   loadSettings,
+  openMarkdownWindow,
   openMarkdownDialog,
   readMarkdownFile,
   startupOpenFile,
@@ -54,7 +56,9 @@ vi.mock("../../../src/lib/tauri", () => ({
   saveMarkdownDialog: vi.fn(),
   saveSettings: vi.fn(() => Promise.resolve()),
   startupOpenFile: vi.fn(),
-  writeMarkdownFile: vi.fn()
+  writeMarkdownFile: vi.fn(),
+  checkForUpdates: vi.fn(),
+  openMarkdownWindow: vi.fn()
 }));
 
 const matchMediaMock = vi.fn(() => ({
@@ -82,6 +86,8 @@ describe("App desktop layout", () => {
       lossy: false
     });
     vi.mocked(writeMarkdownFile).mockResolvedValue("/tmp/example.md");
+    vi.mocked(checkForUpdates).mockResolvedValue({ status: "current", currentVersion: "1.2.2" });
+    vi.mocked(openMarkdownWindow).mockResolvedValue(undefined);
     closeMock.mockClear();
     onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
@@ -109,10 +115,12 @@ describe("App desktop layout", () => {
     const workspace = container.querySelector(".workspace");
     const previewScroll = container.querySelector(".preview-scroll");
     const statusStack = container.querySelector(".status-stack");
+    const tabStrip = container.querySelector(".tab-strip");
 
     expect(shell?.firstElementChild).toBe(titlebar);
     expect(titlebar?.nextElementSibling).toBe(toolbar);
-    expect(toolbar?.nextElementSibling).toBe(statusStack);
+    expect(toolbar?.nextElementSibling).toBe(tabStrip);
+    expect(tabStrip?.nextElementSibling).toBe(statusStack);
     expect(statusStack?.nextElementSibling).toBe(workspace);
     expect(titlebar?.closest(".workspace")).toBeNull();
     expect(toolbar?.closest(".workspace")).toBeNull();
@@ -197,28 +205,25 @@ describe("App desktop layout", () => {
     expect(screen.getByTestId("window-file-title")).toHaveTextContent("launch.md");
   });
 
-  it("prompts before replacing unsaved changes from a later native open event", async () => {
+  it("opens a later native open event in another tab when the current file is dirty", async () => {
     render(<App />);
 
     fireEvent.click(await screen.findByTitle("New Markdown File"));
     fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
-
-    eventMocks.listeners.get("cli-open-file")?.({ payload: "/home/naki/notes/later.md" });
-
-    expect(await screen.findByRole("dialog", { name: "Save changes?" })).toBeInTheDocument();
-    expect(readMarkdownFile).not.toHaveBeenCalledWith("/home/naki/notes/later.md");
 
     vi.mocked(readMarkdownFile).mockResolvedValue({
       path: "/home/naki/notes/later.md",
       contents: "# Later",
       lossy: false
     });
-    fireEvent.click(screen.getByRole("button", { name: "Don't Save" }));
+    eventMocks.listeners.get("cli-open-file")?.({ payload: "/home/naki/notes/later.md" });
 
     expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Later");
+    expect(screen.getByRole("tab", { name: "Untitled unsaved" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "later.md" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("prompts before discarding unsaved changes when opening another file", async () => {
+  it("opens another file in a new tab without discarding unsaved changes", async () => {
     vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/second.md");
     vi.mocked(readMarkdownFile).mockResolvedValue({
       path: "/tmp/second.md",
@@ -232,11 +237,47 @@ describe("App desktop layout", () => {
     fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Draft" } });
     fireEvent.click(screen.getByTitle("Open Markdown File"));
 
-    expect(await screen.findByRole("dialog", { name: "Save changes?" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Don't Save" }));
-
     expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Second");
-    expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Untitled unsaved" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "second.md" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Untitled unsaved" }));
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Draft");
+  });
+
+  it("checks for updates from settings and reports the current version", async () => {
+    vi.mocked(checkForUpdates).mockResolvedValue({
+      status: "current",
+      currentVersion: "1.2.3"
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Settings and app info, mdview 1.2.3"));
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+
+    expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Latest version already installed.")).toBeInTheDocument();
+  });
+
+  it("tears a saved tab into a new window when dragged away from the tab strip", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/tmp/example.md",
+      contents: "# Example",
+      lossy: false
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const tab = await screen.findByRole("tab", { name: "example.md" });
+
+    fireEvent.dragStart(tab, { clientY: 100 });
+    fireEvent.dragEnd(tab, { clientY: 20 });
+
+    expect(openMarkdownWindow).toHaveBeenCalledWith("/tmp/example.md");
+    expect(await screen.findByRole("tab", { name: "Untitled" })).toBeInTheDocument();
   });
 
   it("lets the native window close when there are no unsaved changes", async () => {

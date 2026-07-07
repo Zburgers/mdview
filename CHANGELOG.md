@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.3]
+
+_Released: 2026-07-08_
+
+### Added
+- Added a signed Tauri updater flow in Settings that checks the latest public GitHub Release, installs a newer release when available, and reports when mdview is already current.
+- Added in-window Markdown tabs so multiple local Markdown files and drafts can stay open at the same time.
+- Added updater release metadata generation for `latest.json` plus signed updater artifacts in GitHub Actions.
+
+### Changed
+- Open-file, drag-and-drop, and file-association opens now create or focus document tabs instead of replacing a dirty document.
+- Tightened the release workflow triggers to `main`, PR validation, version tags, and manual dispatch while preserving Linux, Windows, and macOS bundle outputs.
+
 ## [1.2.2]
 
 _Released: 2026-07-07_

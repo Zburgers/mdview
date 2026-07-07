@@ -11,6 +11,10 @@ export type MarkdownDocument = {
   dirty: boolean;
 };
 
+export type MarkdownTab = MarkdownDocument & {
+  id: string;
+};
+
 export type AppSettings = {
   theme: ThemePreference;
   viewMode: ViewMode;
@@ -24,3 +28,13 @@ export type ReadFileResponse = {
   contents: string;
   lossy: boolean;
 };
+
+export type UpdateCheckResult =
+  | {
+      status: "current";
+      currentVersion?: string;
+    }
+  | {
+      status: "installed";
+      version: string;
+    };

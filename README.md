@@ -24,6 +24,8 @@ Included now:
 - Recent files persisted locally.
 - Search highlighting in the rendered document.
 - Sync scrolling in split mode.
+- Multiple Markdown documents open as top-level tabs.
+- Signed in-app update checks from the latest public GitHub Release.
 - Unsaved-change protection for new/open/recent-file/drag-and-drop/close flows.
 - Print stylesheet for system print-to-PDF.
 - Tauri Linux `.deb` and `.rpm` bundle validation.
@@ -215,7 +217,7 @@ matching `v*` publish the installer assets to a GitHub Release automatically.
 Release mdview from a clean, committed tree:
 
 ```bash
-./release.sh --version v1.0.3
+./release.sh --version v1.2.3
 ```
 
 The tag push triggers native CI builds and attaches the installers to the GitHub

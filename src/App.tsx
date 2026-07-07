@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, Sparkles, X } from "lucide-react";
+import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, RefreshCw, Sparkles, X } from "lucide-react";
 import packageInfo from "../package.json";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
@@ -9,7 +9,9 @@ import { RecentFiles, Toolbar } from "./components/Toolbar";
 import { defaultSettings } from "./lib/defaults";
 import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "./lib/markdown";
 import {
+  checkForUpdates,
   loadSettings,
+  openMarkdownWindow,
   openMarkdownDialog,
   readMarkdownFile,
   saveMarkdownDialog,
@@ -17,7 +19,7 @@ import {
   startupOpenFile,
   writeMarkdownFile
 } from "./lib/tauri";
-import type { AppSettings, MarkdownDocument, ThemePreference, ViewMode } from "./types";
+import type { AppSettings, MarkdownDocument, MarkdownTab, ReadFileResponse, ThemePreference, ViewMode } from "./types";
 import "./styles.css";
 
 
@@ -30,16 +32,24 @@ const initialDocument: MarkdownDocument = {
   dirty: false
 };
 
+const createInitialTab = (id = "tab-1"): MarkdownTab => ({
+  ...initialDocument,
+  id
+});
+
 type PendingAction = {
   label: string;
   run: () => Promise<void>;
 };
 
 export default function App() {
-  const [documentState, setDocumentState] = useState<MarkdownDocument>(initialDocument);
+  const [tabs, setTabs] = useState<MarkdownTab[]>(() => [createInitialTab()]);
+  const [activeTabId, setActiveTabId] = useState("tab-1");
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [systemDark, setSystemDark] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
@@ -48,7 +58,14 @@ export default function App() {
   const previewRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
-  const dirtyRef = useRef(documentState.dirty);
+  const dirtyRef = useRef(false);
+  const nextTabIdRef = useRef(2);
+  const tabDragStartYRef = useRef<number | null>(null);
+
+  const documentState = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? createInitialTab(),
+    [activeTabId, tabs]
+  );
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
   const previewTheme = actualTheme === "light" || actualTheme === "paper" ? "light" : "dark";
@@ -86,8 +103,8 @@ export default function App() {
   }, [actualTheme, documentState.dirty, documentState.name]);
 
   useEffect(() => {
-    dirtyRef.current = documentState.dirty;
-  }, [documentState.dirty]);
+    dirtyRef.current = tabs.some((tab) => tab.dirty);
+  }, [tabs]);
 
   useEffect(() => {
     const unlistenPromise = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
@@ -110,6 +127,12 @@ export default function App() {
     });
 
     void unlistenPromise.then(() => {
+      const queryFile = new URLSearchParams(window.location.search).get("file");
+      if (queryFile) {
+        void openExternalPath(queryFile);
+        return;
+      }
+
       void startupOpenFile()
         .then((filePath) => {
           if (filePath) {
@@ -217,6 +240,58 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [documentState, settings]);
 
+  function nextTabId() {
+    const id = `tab-${nextTabIdRef.current}`;
+    nextTabIdRef.current += 1;
+    return id;
+  }
+
+  function updateActiveDocument(update: (current: MarkdownTab) => MarkdownTab) {
+    setTabs((currentTabs) =>
+      currentTabs.map((tab) => (tab.id === activeTabId ? update(tab) : tab))
+    );
+  }
+
+  function isEmptyCleanStartupTab(tab: MarkdownTab) {
+    return !tab.isOpen && !tab.dirty && tab.path === null && tab.markdown.length === 0;
+  }
+
+  function openDocumentInTab(response: ReadFileResponse) {
+    const normalized = normalizeMarkdownText(response.contents);
+    const nextDocument: Omit<MarkdownTab, "id"> = {
+      isOpen: true,
+      path: response.path,
+      name: getMarkdownFileName(response.path),
+      markdown: normalized.text,
+      warning: response.lossy ? normalized.warning : null,
+      dirty: false
+    };
+
+    setTabs((currentTabs) => {
+      const existing = currentTabs.find((tab) => tab.path === response.path);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return currentTabs.map((tab) => (tab.id === existing.id ? { ...nextDocument, id: existing.id } : tab));
+      }
+
+      const activeTab = currentTabs.find((tab) => tab.id === activeTabId);
+      if (activeTab && isEmptyCleanStartupTab(activeTab)) {
+        return currentTabs.map((tab) => (tab.id === activeTabId ? { ...nextDocument, id: activeTabId } : tab));
+      }
+
+      const id = nextTabId();
+      setActiveTabId(id);
+      return [...currentTabs, { ...nextDocument, id }];
+    });
+
+    setSettings((current) => ({
+      ...current,
+      recentFiles: [response.path, ...current.recentFiles.filter((file) => file !== response.path)].slice(0, 10)
+    }));
+    setSearchQuery("");
+    setStatus(null);
+  }
+
   async function openPath(path: string) {
     if (!isMarkdownLikePath(path)) {
       setStatus("Only Markdown or text-like files can be opened.");
@@ -225,24 +300,7 @@ export default function App() {
 
     try {
       const response = await readMarkdownFile(path);
-      const normalized = normalizeMarkdownText(response.contents);
-      setDocumentState({
-        isOpen: true,
-        path: response.path,
-        name: getMarkdownFileName(response.path),
-        markdown: normalized.text,
-        warning: response.lossy ? normalized.warning : null,
-        dirty: false
-      });
-      setSettings((current) => ({
-        ...current,
-        recentFiles: [response.path, ...current.recentFiles.filter((file) => file !== response.path)].slice(
-          0,
-          10
-        )
-      }));
-      setSearchQuery("");
-      setStatus(null);
+      openDocumentInTab(response);
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not open file.");
     }
@@ -254,24 +312,26 @@ export default function App() {
       return;
     }
 
-    const open = () => openPath(path);
-    if (dirtyRef.current) {
-      await queuePendingAction(`open ${getMarkdownFileName(path)}`, open);
-      return;
-    }
-
-    await open();
+    await openPath(path);
   }
 
   function resetToNewFile() {
-    setDocumentState({
+    const nextDocument: Omit<MarkdownTab, "id"> = {
       isOpen: true,
       path: null,
       name: "Untitled",
       markdown: "",
       warning: null,
       dirty: false
-    });
+    };
+    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    if (activeTab && isEmptyCleanStartupTab(activeTab)) {
+      updateActiveDocument((current) => ({ ...nextDocument, id: current.id }));
+    } else {
+      const id = nextTabId();
+      setTabs((currentTabs) => [...currentTabs, { ...nextDocument, id }]);
+      setActiveTabId(id);
+    }
     setSearchQuery("");
     setStatus(null);
     updateSettings({ viewMode: "source" });
@@ -317,9 +377,7 @@ export default function App() {
   async function handleOpen() {
     const selected = await openMarkdownDialog();
     if (selected) {
-      await guardDocumentTransition(`open ${getMarkdownFileName(selected)}`, async () => {
-        await openPath(selected);
-      });
+      await openPath(selected);
     }
   }
 
@@ -327,7 +385,7 @@ export default function App() {
     try {
       if (documentState.path) {
         const savedPath = await writeMarkdownFile(documentState.path, documentState.markdown);
-        setDocumentState((current) => ({
+        updateActiveDocument((current) => ({
           ...current,
           path: savedPath,
           name: getMarkdownFileName(savedPath),
@@ -353,7 +411,7 @@ export default function App() {
 
     try {
       const savedPath = await writeMarkdownFile(selected, documentState.markdown);
-      setDocumentState((current) => ({
+      updateActiveDocument((current) => ({
         ...current,
         path: savedPath,
         name: getMarkdownFileName(savedPath),
@@ -416,6 +474,65 @@ export default function App() {
     }
   }
 
+  async function handleCheckForUpdates() {
+    setIsCheckingUpdates(true);
+    setUpdateStatus("Checking for updates...");
+
+    try {
+      const result = await checkForUpdates();
+      if (result.status === "current") {
+        setUpdateStatus("Latest version already installed.");
+      } else {
+        setUpdateStatus(`Update ${result.version} installed. Restarting mdview...`);
+      }
+    } catch (cause) {
+      setUpdateStatus(cause instanceof Error ? cause.message : "Could not check for updates.");
+    } finally {
+      setIsCheckingUpdates(false);
+    }
+  }
+
+  function closeTab(tabId: string) {
+    setTabs((currentTabs) => {
+      if (currentTabs.length === 1) {
+        const replacement = createInitialTab(tabId);
+        setActiveTabId(replacement.id);
+        return [replacement];
+      }
+
+      const closingIndex = currentTabs.findIndex((tab) => tab.id === tabId);
+      const nextTabs = currentTabs.filter((tab) => tab.id !== tabId);
+      if (activeTabId === tabId) {
+        const nextActive = nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0];
+        setActiveTabId(nextActive.id);
+      }
+      return nextTabs;
+    });
+  }
+
+  async function requestCloseTab(tab: MarkdownTab) {
+    if (tab.dirty) {
+      await queuePendingAction(`close ${tab.name}`, async () => closeTab(tab.id));
+      return;
+    }
+
+    closeTab(tab.id);
+  }
+
+  async function detachTabToWindow(tab: MarkdownTab) {
+    if (!tab.path || tab.dirty) {
+      setStatus("Save this tab before dragging it into a new window.");
+      return;
+    }
+
+    try {
+      await openMarkdownWindow(tab.path);
+      closeTab(tab.id);
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : "Could not open a new window.");
+    }
+  }
+
   return (
     <main className="app-shell">
       <WindowTitleBar fileName={documentState.name} dirty={documentState.dirty} />
@@ -439,6 +556,49 @@ export default function App() {
         onQueryChange={setSearchQuery}
         onSyncScrollChange={(syncScroll) => updateSettings({ syncScroll })}
       />
+
+      <div className="tab-strip" role="tablist" aria-label="Open Markdown files">
+        {tabs.map((tab) => (
+          <div className={tab.id === activeTabId ? "document-tab active" : "document-tab"} key={tab.id}>
+            <button
+              type="button"
+              role="tab"
+              draggable
+              aria-selected={tab.id === activeTabId}
+              aria-label={`${tab.name}${tab.dirty ? " unsaved" : ""}`}
+              title={tab.path ?? tab.name}
+              onDragStart={(event) => {
+                tabDragStartYRef.current = event.clientY;
+              }}
+              onDragEnd={(event) => {
+                const startY = tabDragStartYRef.current;
+                tabDragStartYRef.current = null;
+                if (startY === null || Math.abs(event.clientY - startY) < 48) {
+                  return;
+                }
+                void detachTabToWindow(tab);
+              }}
+              onClick={() => {
+                setActiveTabId(tab.id);
+                setSearchQuery("");
+              }}
+            >
+              <FileText size={14} />
+              <span>{tab.name}</span>
+              {tab.dirty ? <span aria-hidden="true" className="dirty-dot" /> : null}
+            </button>
+            <button
+              type="button"
+              className="tab-close"
+              title={`Close ${tab.name}`}
+              aria-label={`Close ${tab.name}`}
+              onClick={() => void requestCloseTab(tab)}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+      </div>
 
       <div className="status-stack">
         {status ? <div className="status-bar">{status}</div> : null}
@@ -534,7 +694,7 @@ export default function App() {
               onScroll={onSourceScroll}
               onChange={(event) => {
                 const markdown = event.currentTarget.value;
-                setDocumentState((current) => ({
+                updateActiveDocument((current) => ({
                   ...current,
                   markdown,
                   dirty: true
@@ -638,6 +798,23 @@ export default function App() {
                   <dd>Strict mode</dd>
                 </div>
               </dl>
+            </section>
+
+            <section className="settings-section">
+              <h3>Updates</h3>
+              <button
+                className="setting-row-toggle"
+                aria-label="Check for updates"
+                disabled={isCheckingUpdates}
+                onClick={() => void handleCheckForUpdates()}
+              >
+                <div className="toggle-info">
+                  <span className="toggle-label">Check for updates</span>
+                  <span className="toggle-sub">Install the latest signed GitHub release</span>
+                </div>
+                <RefreshCw size={18} />
+              </button>
+              {updateStatus ? <p className="settings-note">{updateStatus}</p> : null}
             </section>
           </aside>
         </div>
