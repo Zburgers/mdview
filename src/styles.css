@@ -1073,11 +1073,18 @@ select:focus-visible {
     color: #111111;
   }
 
+  body::before {
+    display: none !important;
+  }
+
   .toolbar,
   .window-titlebar,
+  .status-stack,
   .status-bar,
   .source-wrap,
-  .settings-backdrop {
+  .settings-backdrop,
+  .modal-backdrop,
+  .confirm-dialog {
     display: none !important;
   }
 
@@ -1087,6 +1094,10 @@ select:focus-visible {
     display: block;
     min-height: auto;
     overflow: visible;
+  }
+
+  .workspace[data-empty="true"] {
+    display: none !important;
   }
 
   .preview {
@@ -1109,5 +1120,24 @@ select:focus-visible {
   .markdown-body table,
   .markdown-body blockquote {
     break-inside: avoid;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3 {
+    break-after: avoid;
+  }
+
+  .markdown-body img {
+    max-width: 100%;
+    break-inside: avoid;
+  }
+
+  .mermaid-host {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 1.5cm;
   }
 }

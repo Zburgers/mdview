@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import {
   Columns2,
   Download,
@@ -32,6 +33,7 @@ type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onQueryChange: (query: string) => void;
   onSyncScrollChange: (enabled: boolean) => void;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
 };
 
 const modes: Array<{ value: ViewMode; label: string; icon: typeof FileText }> = [
@@ -91,6 +93,7 @@ export function Toolbar(props: ToolbarProps) {
         <label className="search-box">
           <Search size={16} />
           <input
+            ref={props.searchInputRef}
             value={props.query}
             placeholder="Search document"
             onChange={(event) => props.onQueryChange(event.currentTarget.value)}

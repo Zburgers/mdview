@@ -32,7 +32,7 @@ export function readMarkdownFile(path: string): Promise<ReadFileResponse> {
   return invoke("read_markdown_file", { path });
 }
 
-export function writeMarkdownFile(path: string, contents: string): Promise<void> {
+export function writeMarkdownFile(path: string, contents: string): Promise<string> {
   return invoke("write_markdown_file", { path, contents });
 }
 
