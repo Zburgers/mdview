@@ -7,6 +7,12 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish or update the GitHub Release for the package.json version"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-build-${{ github.ref }}
@@ -39,14 +45,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            appstream \
-            cpio \
-            desktop-file-utils \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf \
-            rpm
+            patchelf
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm typecheck
@@ -96,9 +98,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            appstream \
-            cpio \
-            desktop-file-utils \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
@@ -117,9 +116,7 @@ jobs:
             src-tauri/target/release/bundle/**/*.deb
             src-tauri/target/release/bundle/**/*.rpm
             src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.dmg
-            src-tauri/target/release/bundle/**/*.app
           if-no-files-found: error
 
   publish-release:
@@ -127,7 +124,7 @@ jobs:
     needs: bundle
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
     runs-on: ubuntu-22.04
     permissions:
@@ -154,15 +151,16 @@ jobs:
           {
             echo "# mdview ${tag}"
             echo
-            awk -v version="$version" '
-              $0 ~ "^## \\[" version "\\]" { in_section=1; next }
-              /^## \\[/ && in_section { exit }
+            awk -v heading="## [${version}]" '
+              $0 == heading { in_section=1; next }
+              in_section && substr($0, 1, 4) == "## [" { exit }
               in_section { print }
             ' CHANGELOG.md
           } > "$notes_file"
 
           if ! grep -q '[^[:space:]]' "$notes_file"; then
             echo "# mdview ${tag}" > "$notes_file"
+            echo "Release ${tag}." >> "$notes_file"
           fi
       - uses: actions/download-artifact@v4
         with:
@@ -177,6 +175,8 @@ jobs:
           target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
           files: |
             release-assets/**/*.AppImage
             release-assets/**/*.deb
