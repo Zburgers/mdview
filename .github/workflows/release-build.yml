@@ -60,7 +60,10 @@ jobs:
 
   bundle:
     name: Bundle ${{ matrix.platform }}
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
     strategy:
       fail-fast: false
       matrix:
@@ -122,11 +125,45 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: bundle
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="v${version}"
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          notes_file="RELEASE_NOTES.md"
+          {
+            echo "# mdview ${tag}"
+            echo
+            awk -v version="$version" '
+              $0 ~ "^## \\[" version "\\]" { in_section=1; next }
+              /^## \\[/ && in_section { exit }
+              in_section { print }
+            ' CHANGELOG.md
+          } > "$notes_file"
+
+          if ! grep -q '[^[:space:]]' "$notes_file"; then
+            echo "# mdview ${tag}" > "$notes_file"
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -135,7 +172,10 @@ jobs:
         run: find release-assets -maxdepth 5 -type f -print | sort
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: mdview ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |
             release-assets/**/*.AppImage
