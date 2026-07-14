@@ -41,4 +41,11 @@ describe("desktop layout CSS", () => {
     expect(previewScrollRule).toContain("overflow: auto");
     expect(previewRule).toContain("min-height: 100%");
   });
+
+  it("keeps editor and preview text out of transformed workspace layers", () => {
+    const workspaceRule = ruleFor(".workspace");
+
+    expect(workspaceRule).not.toContain("animation:");
+    expect(workspaceRule).not.toContain("transform:");
+  });
 });
