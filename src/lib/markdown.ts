@@ -5,8 +5,8 @@ const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "te
 
 const renderer = new Renderer();
 
-renderer.link = ({ href, title, tokens }) => {
-  const text = markedParser.parser(tokens);
+renderer.link = function ({ href, title, tokens }) {
+  const text = this.parser.parseInline(tokens);
   const safeTitle = title ? ` title="${escapeAttribute(title)}"` : "";
   return `<a href="${escapeAttribute(href)}"${safeTitle} rel="noreferrer">${text}</a>`;
 };

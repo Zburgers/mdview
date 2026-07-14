@@ -34,6 +34,16 @@ describe("markdown helpers", () => {
     expect(html).not.toContain("<script");
   });
 
+  it("renders inline code inside links", async () => {
+    const html = await renderMarkdown(
+      "[PostgreSQL `SELECT` / `SKIP LOCKED`](https://www.postgresql.org/docs/current/sql-select.html)"
+    );
+
+    expect(html).toContain(
+      '<a href="https://www.postgresql.org/docs/current/sql-select.html" rel="noreferrer">PostgreSQL <code>SELECT</code> / <code>SKIP LOCKED</code></a>'
+    );
+  });
+
   it("sanitizes mermaid svg before insertion", () => {
     const svg = sanitizeMermaidSvg(
       '<svg><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><g onload="alert(1)"><a href="javascript:alert(1)">x</a></g></svg>'
