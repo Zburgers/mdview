@@ -44,6 +44,26 @@ describe("markdown helpers", () => {
     );
   });
 
+  it("blocks remote image requests by default while preserving local images", async () => {
+    const html = await renderMarkdown(
+      "![Remote](https://example.com/tracker.png)\n\n![Local](images/diagram.png)\n\n![Protocol relative](//example.com/tracker.png)"
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector('img[alt="Remote"]')?.getAttribute("src")).toBeNull();
+    expect(document.querySelector('img[alt="Protocol relative"]')?.getAttribute("src")).toBeNull();
+    expect(document.querySelector('img[alt="Local"]')?.getAttribute("src")).toBe("images/diagram.png");
+  });
+
+  it("allows remote images only when explicitly enabled", async () => {
+    const html = await renderMarkdown("![Remote](https://example.com/image.png)", {
+      allowRemoteImages: true
+    });
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector('img[alt="Remote"]')?.getAttribute("src")).toBe("https://example.com/image.png");
+  });
+
   it("sanitizes mermaid svg before insertion", () => {
     const svg = sanitizeMermaidSvg(
       '<svg><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><g onload="alert(1)"><a href="javascript:alert(1)">x</a></g></svg>'

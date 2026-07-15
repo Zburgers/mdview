@@ -21,6 +21,7 @@ export type AppSettings = {
   recentFiles: string[];
   syncScroll: boolean;
   trustedHtml: boolean;
+  allowRemoteImages: boolean;
 };
 
 export type ReadFileResponse = {

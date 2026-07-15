@@ -48,9 +48,16 @@ export function getMarkdownFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
-export async function renderMarkdown(markdown: string): Promise<string> {
+export type MarkdownRenderOptions = {
+  allowRemoteImages?: boolean;
+};
+
+export async function renderMarkdown(
+  markdown: string,
+  { allowRemoteImages = false }: MarkdownRenderOptions = {}
+): Promise<string> {
   const html = addTaskListClasses(await markedParser.parse(promoteStandaloneMermaid(markdown)));
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a",
       "blockquote",
@@ -97,6 +104,8 @@ export async function renderMarkdown(markdown: string): Promise<string> {
     FORBID_TAGS: ["script", "iframe", "object", "embed", "form"],
     ADD_ATTR: ["target"]
   });
+
+  return allowRemoteImages ? sanitized : removeRemoteImageSources(sanitized);
 }
 
 export function promoteStandaloneMermaid(markdown: string): string {
@@ -137,6 +146,31 @@ export function sanitizeMermaidSvg(svg: string): string {
     ALLOW_DATA_ATTR: false,
     FORBID_TAGS: ["script", "foreignObject"]
   });
+}
+
+function removeRemoteImageSources(html: string): string {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  document.querySelectorAll("img[src]").forEach((image) => {
+    const src = image.getAttribute("src");
+    if (src && isRemoteImageSource(src)) {
+      image.removeAttribute("src");
+    }
+  });
+
+  return document.body.innerHTML;
+}
+
+function isRemoteImageSource(src: string): boolean {
+  if (src.startsWith("//")) {
+    return true;
+  }
+
+  try {
+    const url = new URL(src);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function addTaskListClasses(html: string): string {

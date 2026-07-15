@@ -13,13 +13,14 @@ struct ReadFileResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 struct AppSettings {
     theme: String,
     view_mode: String,
     recent_files: Vec<String>,
     sync_scroll: bool,
     trusted_html: bool,
+    allow_remote_images: bool,
 }
 
 impl Default for AppSettings {
@@ -30,6 +31,7 @@ impl Default for AppSettings {
             recent_files: Vec::new(),
             sync_scroll: true,
             trusted_html: false,
+            allow_remote_images: false,
         }
     }
 }

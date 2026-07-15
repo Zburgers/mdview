@@ -12,9 +12,10 @@ type PreviewProps = {
   filePath: string | null;
   theme: "light" | "dark";
   searchQuery: string;
+  allowRemoteImages?: boolean;
 };
 
-export function Preview({ markdown, filePath, theme, searchQuery }: PreviewProps) {
+export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteImages = false }: PreviewProps) {
   const [html, setHtml] = useState("");
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,7 +23,7 @@ export function Preview({ markdown, filePath, theme, searchQuery }: PreviewProps
   useEffect(() => {
     let cancelled = false;
 
-    renderMarkdown(markdown)
+    renderMarkdown(markdown, { allowRemoteImages })
       .then((nextHtml) => {
         if (!cancelled) {
           setHtml(nextHtml);
@@ -38,7 +39,7 @@ export function Preview({ markdown, filePath, theme, searchQuery }: PreviewProps
     return () => {
       cancelled = true;
     };
-  }, [markdown]);
+  }, [allowRemoteImages, markdown]);
 
   useEffect(() => {
     const root = containerRef.current;

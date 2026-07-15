@@ -711,6 +711,7 @@ export default function App() {
               filePath={documentState.path}
               theme={previewTheme}
               searchQuery={searchQuery}
+              allowRemoteImages={settings.allowRemoteImages}
             />
           </div>
         )}
@@ -777,6 +778,20 @@ export default function App() {
                   <span className="toggle-sub">Enable unsanitized HTML rendering</span>
                 </div>
                 <div className="switch-control">
+                  <span className="switch-thumb" />
+                </div>
+              </button>
+
+              <button
+                className="setting-row-toggle"
+                aria-pressed={settings.allowRemoteImages}
+                onClick={() => updateSettings({ allowRemoteImages: !settings.allowRemoteImages })}
+              >
+                <div className="toggle-info">
+                  <span className="toggle-label">Remote Images</span>
+                  <span className="toggle-sub">Load external images embedded in Markdown</span>
+                </div>
+                <div className={`switch-control ${settings.allowRemoteImages ? "active" : ""}`}>
                   <span className="switch-thumb" />
                 </div>
               </button>
