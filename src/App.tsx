@@ -46,6 +46,7 @@ export default function App() {
   const [tabs, setTabs] = useState<MarkdownTab[]>(() => [createInitialTab()]);
   const [activeTabId, setActiveTabId] = useState("tab-1");
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
@@ -82,12 +83,17 @@ export default function App() {
   useEffect(() => {
     loadSettings()
       .then((loaded) => setSettings({ ...defaultSettings, ...loaded }))
-      .catch(() => setSettings(defaultSettings));
+      .catch(() => setSettings(defaultSettings))
+      .finally(() => setSettingsLoaded(true));
   }, []);
 
   useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+
     saveSettings(settings).catch(() => undefined);
-  }, [settings]);
+  }, [settings, settingsLoaded]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");

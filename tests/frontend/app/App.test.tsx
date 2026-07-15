@@ -8,6 +8,7 @@ import {
   openMarkdownWindow,
   openMarkdownDialog,
   readMarkdownFile,
+  saveSettings,
   startupOpenFile,
   writeMarkdownFile
 } from "../../../src/lib/tauri";
@@ -88,6 +89,7 @@ describe("App desktop layout", () => {
     vi.mocked(writeMarkdownFile).mockResolvedValue("/tmp/example.md");
     vi.mocked(checkForUpdates).mockResolvedValue({ status: "current", currentVersion: "1.2.2" });
     vi.mocked(openMarkdownWindow).mockResolvedValue(undefined);
+    vi.mocked(saveSettings).mockClear();
     closeMock.mockClear();
     onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
@@ -99,6 +101,26 @@ describe("App desktop layout", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: matchMediaMock
+    });
+  });
+
+  it("waits for saved settings before writing preferences", async () => {
+    let resolveSettings!: (settings: typeof defaultSettings) => void;
+    vi.mocked(loadSettings).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSettings = resolve;
+      })
+    );
+
+    render(<App />);
+
+    expect(saveSettings).not.toHaveBeenCalled();
+
+    const loaded = { ...defaultSettings, theme: "dark" as const, allowRemoteImages: true };
+    resolveSettings(loaded);
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(loaded);
     });
   });
 
