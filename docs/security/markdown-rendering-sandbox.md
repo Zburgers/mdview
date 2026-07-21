@@ -21,7 +21,7 @@ The parser uses GitHub-flavored Markdown and supports:
 - fenced code blocks
 - blockquotes
 - ordered and unordered lists
-- task-list checkboxes
+- disabled task-list checkboxes
 - tables
 - horizontal rules
 - links
@@ -43,7 +43,7 @@ Raw HTML is never trusted as an unrestricted document. The sanitized preview all
 - `h1` through `h6`
 - `hr`
 - `img`
-- `input`
+- `input`, restricted after sanitization to disabled checkboxes generated for task lists
 - `li`, `ol`, and `ul`
 - `p`
 - `pre`
@@ -61,6 +61,7 @@ The following active-content surfaces are explicitly removed:
 - forms
 - audio and video
 - source elements
+- active text, button, submit, and image inputs
 - raw SVG and MathML supplied through Markdown
 - inline event handlers
 - arbitrary style elements and style attributes
@@ -103,7 +104,8 @@ Mermaid does not share the ordinary Markdown HTML pipeline. It generates SVG aft
 3. Mermaid runs with `securityLevel: "strict"`.
 4. Generated SVG is sanitized with the DOMPurify SVG profile.
 5. Scripts, `foreignObject`, iframes, objects, and embeds are forbidden.
-6. Remote `href`, `xlink:href`, `src`, and remote style references are stripped from generated SVG unless remote images are enabled.
+6. Generated SVG image elements receive the same URL policy as ordinary Markdown images, including rejection of privileged schemes and SVG data documents.
+7. Remote `href`, `xlink:href`, `src`, and remote style references are stripped from generated SVG unless remote images are enabled.
 
 The source preflight is deliberately conservative. A Mermaid label containing a literal external URL may be blocked even when it was intended only as text. This is preferable to starting a network request before post-render SVG sanitization can run.
 
@@ -140,6 +142,7 @@ The `1.2.4` regression suite covers:
 
 - script and active HTML removal
 - the raw HTML allowlist
+- task checkbox preservation with active-input removal
 - Markdown and raw HTML remote-image blocking
 - protocol-relative and unsupported image schemes
 - whitespace-normalized image URLs
@@ -147,7 +150,7 @@ The `1.2.4` regression suite covers:
 - safe raster image data URLs and blocked SVG data documents
 - explicit remote-image opt-in
 - Mermaid source network-resource detection
-- Mermaid SVG script and remote-resource removal
+- Mermaid SVG script and image-resource policy enforcement
 - native external-link confirmation
 - declined and failed browser opens
 - blocked protocol messaging
