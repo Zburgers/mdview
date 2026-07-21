@@ -182,6 +182,10 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
     }
   }
 
+  function onContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+    interceptLinkEvent(event);
+  }
+
   if (error) {
     return <pre className="render-error">{error}</pre>;
   }
@@ -192,6 +196,7 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
       ref={containerRef}
       onClick={onClick}
       onAuxClick={onAuxClick}
+      onContextMenu={onContextMenu}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
