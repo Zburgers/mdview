@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import { Marked, Renderer } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
+const remoteResourcePattern = /(?:https?|ftps?|wss?):\/\/|(?:^|[\s("'=])\/\/[a-z0-9]/i;
 
 const renderer = new Renderer();
 
@@ -21,6 +22,10 @@ const markedParser = new Marked({
 export type NormalizedMarkdown = {
   text: string;
   warning: string | null;
+};
+
+export type MarkdownRenderOptions = {
+  allowRemoteImages?: boolean;
 };
 
 export function isMarkdownLikePath(path: string): boolean {
@@ -47,10 +52,6 @@ export function getMarkdownFileName(path: string | null): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
 }
-
-export type MarkdownRenderOptions = {
-  allowRemoteImages?: boolean;
-};
 
 export async function renderMarkdown(
   markdown: string,
@@ -101,11 +102,11 @@ export async function renderMarkdown(
       "type"
     ],
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form"],
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "audio", "video", "source"],
     ADD_ATTR: ["target"]
   });
 
-  return allowRemoteImages ? sanitized : removeRemoteImageSources(sanitized);
+  return applyImageResourcePolicy(sanitized, allowRemoteImages);
 }
 
 export function promoteStandaloneMermaid(markdown: string): string {
@@ -140,37 +141,95 @@ export function promoteStandaloneMermaid(markdown: string): string {
   return output.join("\n");
 }
 
-export function sanitizeMermaidSvg(svg: string): string {
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ["script", "foreignObject"]
-  });
+export function containsRemoteResourceReference(value: string): boolean {
+  return remoteResourcePattern.test(value);
 }
 
-function removeRemoteImageSources(html: string): string {
+export function sanitizeMermaidSvg(
+  svg: string,
+  { allowRemoteImages = false }: MarkdownRenderOptions = {}
+): string {
+  const sanitized = DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ALLOW_DATA_ATTR: false,
+    FORBID_TAGS: ["script", "foreignObject", "iframe", "object", "embed"]
+  });
+  const document = new DOMParser().parseFromString(sanitized, "image/svg+xml");
+  const root = document.documentElement;
+
+  if (root.nodeName.toLowerCase() === "parsererror") {
+    return "";
+  }
+
+  if (!allowRemoteImages) {
+    root.querySelectorAll("*").forEach((element) => {
+      ["href", "xlink:href", "src"].forEach((attribute) => {
+        const value = element.getAttribute(attribute);
+        if (value && containsRemoteResourceReference(value)) {
+          element.removeAttribute(attribute);
+        }
+      });
+
+      const style = element.getAttribute("style");
+      if (style && containsRemoteResourceReference(style)) {
+        element.removeAttribute("style");
+      }
+    });
+
+    root.querySelectorAll("style").forEach((style) => {
+      if (containsRemoteResourceReference(style.textContent ?? "")) {
+        style.remove();
+      }
+    });
+  }
+
+  return new XMLSerializer().serializeToString(root);
+}
+
+function applyImageResourcePolicy(html: string, allowRemoteImages: boolean): string {
   const document = new DOMParser().parseFromString(html, "text/html");
   document.querySelectorAll("img[src]").forEach((image) => {
     const src = image.getAttribute("src");
-    if (src && isRemoteImageSource(src)) {
-      image.removeAttribute("src");
+    if (!src) {
+      return;
+    }
+
+    if (src.startsWith("//")) {
+      if (allowRemoteImages) {
+        image.setAttribute("src", `https:${src}`);
+      } else {
+        markImageSourceBlocked(image);
+      }
+      return;
+    }
+
+    if (!isAllowedImageSource(src, allowRemoteImages)) {
+      markImageSourceBlocked(image);
     }
   });
 
   return document.body.innerHTML;
 }
 
-function isRemoteImageSource(src: string): boolean {
-  if (src.startsWith("//")) {
-    return true;
-  }
-
+function isAllowedImageSource(src: string, allowRemoteImages: boolean): boolean {
   try {
     const url = new URL(src);
-    return url.protocol === "http:" || url.protocol === "https:";
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return allowRemoteImages;
+    }
+    if (url.protocol === "data:") {
+      return src.trimStart().toLowerCase().startsWith("data:image/");
+    }
+    return url.protocol === "asset:" || url.protocol === "blob:" || url.protocol === "tauri:";
   } catch {
-    return false;
+    return true;
   }
+}
+
+function markImageSourceBlocked(image: Element): void {
+  image.removeAttribute("src");
+  image.classList.add("blocked-image-source");
+  image.setAttribute("title", "Image source blocked by mdview");
 }
 
 function addTaskListClasses(html: string): string {
