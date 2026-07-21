@@ -163,14 +163,32 @@ export function sanitizeMermaidSvg(
     return "";
   }
 
+  root.querySelectorAll("image").forEach((image) => {
+    ["href", "xlink:href", "src"].forEach((attribute) => {
+      const originalValue = image.getAttribute(attribute);
+      if (!originalValue) {
+        return;
+      }
+
+      const value = originalValue.trim();
+      if (!isAllowedImageSource(value, allowRemoteImages, false)) {
+        image.removeAttribute(attribute);
+      } else if (value !== originalValue) {
+        image.setAttribute(attribute, value);
+      }
+    });
+  });
+
   if (!allowRemoteImages) {
     root.querySelectorAll("*").forEach((element) => {
-      ["href", "xlink:href", "src"].forEach((attribute) => {
-        const value = element.getAttribute(attribute);
-        if (value && containsRemoteResourceReference(value)) {
-          element.removeAttribute(attribute);
-        }
-      });
+      if (element.nodeName.toLowerCase() !== "image") {
+        ["href", "xlink:href", "src"].forEach((attribute) => {
+          const value = element.getAttribute(attribute);
+          if (value && containsRemoteResourceReference(value)) {
+            element.removeAttribute(attribute);
+          }
+        });
+      }
 
       const style = element.getAttribute("style");
       if (style && containsRemoteResourceReference(style)) {
@@ -215,7 +233,7 @@ function applyImageResourcePolicy(html: string, allowRemoteImages: boolean): str
       return;
     }
 
-    if (!isAllowedImageSource(src, allowRemoteImages)) {
+    if (!isAllowedImageSource(src, allowRemoteImages, true)) {
       markImageSourceBlocked(image);
     }
   });
@@ -223,7 +241,15 @@ function applyImageResourcePolicy(html: string, allowRemoteImages: boolean): str
   return document.body.innerHTML;
 }
 
-function isAllowedImageSource(src: string, allowRemoteImages: boolean): boolean {
+function isAllowedImageSource(
+  src: string,
+  allowRemoteImages: boolean,
+  allowRelative: boolean
+): boolean {
+  if (!src) {
+    return false;
+  }
+
   try {
     const url = new URL(src);
     if (url.protocol === "http:" || url.protocol === "https:") {
@@ -234,7 +260,7 @@ function isAllowedImageSource(src: string, allowRemoteImages: boolean): boolean 
     }
     return url.protocol === "blob:";
   } catch {
-    return true;
+    return allowRelative;
   }
 }
 
