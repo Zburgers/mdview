@@ -3,6 +3,8 @@ import { Marked, Renderer } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
 const remoteResourcePattern = /(?:https?|ftps?|wss?):\/\/|(?:^|[\s("'=])\/\/[a-z0-9]/i;
+const allowedDataImagePattern =
+  /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i;
 
 const renderer = new Renderer();
 
@@ -189,9 +191,19 @@ export function sanitizeMermaidSvg(
 function applyImageResourcePolicy(html: string, allowRemoteImages: boolean): string {
   const document = new DOMParser().parseFromString(html, "text/html");
   document.querySelectorAll("img[src]").forEach((image) => {
-    const src = image.getAttribute("src");
-    if (!src) {
+    const originalSrc = image.getAttribute("src");
+    if (!originalSrc) {
       return;
+    }
+
+    const src = originalSrc.trim();
+    if (!src) {
+      markImageSourceBlocked(image);
+      return;
+    }
+
+    if (src !== originalSrc) {
+      image.setAttribute("src", src);
     }
 
     if (src.startsWith("//")) {
@@ -218,7 +230,7 @@ function isAllowedImageSource(src: string, allowRemoteImages: boolean): boolean 
       return allowRemoteImages;
     }
     if (url.protocol === "data:") {
-      return src.trimStart().toLowerCase().startsWith("data:image/");
+      return allowedDataImagePattern.test(src);
     }
     return url.protocol === "asset:" || url.protocol === "blob:" || url.protocol === "tauri:";
   } catch {
