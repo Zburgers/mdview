@@ -129,9 +129,9 @@ describe("markdown helpers", () => {
     expect(containsRemoteResourceReference("flowchart LR\nA --> B")).toBe(false);
   });
 
-  it("sanitizes Mermaid SVG before insertion and strips remote resources", () => {
+  it("sanitizes Mermaid SVG before insertion and applies the image policy", () => {
     const svg = sanitizeMermaidSvg(
-      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><g onload="alert(1)"><a href="javascript:alert(1)">x</a><image href="https://example.com/tracker.png"/><image href="data:image/png;base64,AAAA"/></g></svg>'
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><g onload="alert(1)"><a href="javascript:alert(1)">x</a><image href="https://example.com/tracker.png"/><image href="asset://localhost/private.png"/><image href="data:image/svg+xml,%3Csvg%3E%3C/svg%3E"/><image href="data:image/png;base64,AAAA"/></g></svg>'
     );
 
     expect(svg).toContain("<svg");
@@ -140,6 +140,8 @@ describe("markdown helpers", () => {
     expect(svg).not.toContain("onload=");
     expect(svg).not.toContain("javascript:alert");
     expect(svg).not.toContain("https://example.com/tracker.png");
+    expect(svg).not.toContain("asset://localhost/private.png");
+    expect(svg).not.toContain("data:image/svg+xml");
     expect(svg).toContain("data:image/png;base64,AAAA");
   });
 
