@@ -85,6 +85,8 @@ describe("markdown helpers", () => {
     const html = await renderMarkdown(
       '<img alt="Raw remote" src="https://example.com/pixel.png">' +
         '<img alt="File" src="file:///home/user/private.png">' +
+        '<img alt="Asset" src="asset://localhost/private.png">' +
+        '<img alt="Tauri" src="tauri://localhost/private.png">' +
         '<img alt="Data image" src="data:image/png;base64,AAAA">' +
         '<img alt="Data svg" src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E">' +
         '<img alt="Data html" src="data:text/html;base64,AAAA">'
@@ -93,6 +95,8 @@ describe("markdown helpers", () => {
 
     expect(document.querySelector('img[alt="Raw remote"]')?.getAttribute("src")).toBeNull();
     expect(document.querySelector('img[alt="File"]')?.getAttribute("src")).toBeNull();
+    expect(document.querySelector('img[alt="Asset"]')?.getAttribute("src")).toBeNull();
+    expect(document.querySelector('img[alt="Tauri"]')?.getAttribute("src")).toBeNull();
     expect(document.querySelector('img[alt="Data image"]')?.getAttribute("src")).toBe(
       "data:image/png;base64,AAAA"
     );
