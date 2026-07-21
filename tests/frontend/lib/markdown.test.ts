@@ -74,11 +74,19 @@ describe("markdown helpers", () => {
     expect(document.querySelector('img[alt="Local"]')?.getAttribute("src")).toBe("images/diagram.png");
   });
 
+  it("normalizes whitespace before applying the remote image policy", async () => {
+    const html = await renderMarkdown('<img alt="Spaced" src="  //example.com/tracker.png  ">');
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector('img[alt="Spaced"]')?.getAttribute("src")).toBeNull();
+  });
+
   it("applies the same image policy to raw HTML and unsupported URI schemes", async () => {
     const html = await renderMarkdown(
       '<img alt="Raw remote" src="https://example.com/pixel.png">' +
         '<img alt="File" src="file:///home/user/private.png">' +
         '<img alt="Data image" src="data:image/png;base64,AAAA">' +
+        '<img alt="Data svg" src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E">' +
         '<img alt="Data html" src="data:text/html;base64,AAAA">'
     );
     const document = new DOMParser().parseFromString(html, "text/html");
@@ -88,6 +96,7 @@ describe("markdown helpers", () => {
     expect(document.querySelector('img[alt="Data image"]')?.getAttribute("src")).toBe(
       "data:image/png;base64,AAAA"
     );
+    expect(document.querySelector('img[alt="Data svg"]')?.getAttribute("src")).toBeNull();
     expect(document.querySelector('img[alt="Data html"]')?.getAttribute("src")).toBeNull();
   });
 
