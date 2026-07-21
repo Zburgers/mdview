@@ -72,20 +72,22 @@ The disabled **Trusted HTML** control remains intentionally non-functional in th
 
 Remote images are blocked by default before sanitized HTML is inserted into the preview DOM. The policy applies equally to Markdown image syntax and raw HTML `img` elements.
 
-Allowed by default:
+Allowed document inputs by default:
 
-- relative document image paths
-- application asset URLs
-- Tauri asset URLs
+- relative image paths resolved from the opened Markdown file's directory
 - blob URLs
-- `data:image/*` URLs
+- raster image data URLs for AVIF, BMP, GIF, JPEG, PNG, WebP, and supported icon formats
 
-Blocked by default:
+Relative paths do not enter the preview as privileged URLs. After the document source has passed the image policy, mdview resolves the path against the opened document and creates the Tauri asset URL itself.
+
+Blocked document inputs by default:
 
 - `http://` and `https://` images
 - protocol-relative URLs such as `//example.com/image.png`
 - `file://` URLs
+- document-supplied `asset:` and `tauri:` URLs
 - FTP and other unsupported URI schemes
+- SVG data documents
 - non-image data URLs such as `data:text/html`
 
 When **Remote Images** is explicitly enabled, HTTP and HTTPS images are permitted. Protocol-relative image URLs are normalized to HTTPS.
@@ -109,7 +111,7 @@ The source preflight is deliberately conservative. A Mermaid label containing a 
 
 Rendered documents cannot navigate the mdview webview directly.
 
-For every clicked Markdown link:
+For every Markdown link:
 
 - default browser/webview navigation is prevented
 - event propagation is stopped
@@ -121,7 +123,7 @@ For every clicked Markdown link:
 - unsupported schemes such as `javascript:`, `mailto:`, or custom protocols are blocked and explained in a native dialog
 - same-document fragment links only scroll to an existing element ID
 
-Middle-click navigation is intercepted through the same policy instead of bypassing the confirmation flow.
+Primary clicks and middle clicks pass through the same confirmation policy. Link context menus are suppressed so the embedded webview cannot expose an unconfirmed direct-navigation action.
 
 ## Application CSP
 
@@ -140,13 +142,16 @@ The `1.2.4` regression suite covers:
 - the raw HTML allowlist
 - Markdown and raw HTML remote-image blocking
 - protocol-relative and unsupported image schemes
-- safe image data URLs
+- whitespace-normalized image URLs
+- document-supplied Tauri asset scheme rejection
+- safe raster image data URLs and blocked SVG data documents
 - explicit remote-image opt-in
 - Mermaid source network-resource detection
 - Mermaid SVG script and remote-resource removal
 - native external-link confirmation
 - declined and failed browser opens
 - blocked protocol messaging
+- link context-menu suppression
 - Mermaid preflight before renderer invocation
 
 ## Residual assumptions
