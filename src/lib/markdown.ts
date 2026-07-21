@@ -232,7 +232,7 @@ function isAllowedImageSource(src: string, allowRemoteImages: boolean): boolean 
     if (url.protocol === "data:") {
       return allowedDataImagePattern.test(src);
     }
-    return url.protocol === "asset:" || url.protocol === "blob:" || url.protocol === "tauri:";
+    return url.protocol === "blob:";
   } catch {
     return true;
   }
