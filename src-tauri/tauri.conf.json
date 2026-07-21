@@ -58,14 +58,49 @@
       "icons/128x128.png",
       "icons/256x256.png",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "appimage": {
+        "files": {
+          "usr/share/metainfo/mdview.appdata.xml": "packaging/linux/mdview.appdata.xml"
+        }
+      },
+      "deb": {
+        "depends": [],
+        "desktopTemplate": "packaging/linux/mdview.desktop.hbs",
+        "files": {
+          "usr/share/metainfo/mdview.appdata.xml": "packaging/linux/mdview.appdata.xml"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "packaging/linux/mdview.desktop.hbs",
+        "files": {
+          "/usr/share/metainfo/mdview.appdata.xml": "packaging/linux/mdview.appdata.xml"
+        }
+      }
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "displayLanguageSelector": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBQzIwOTdDQzAyM0VCNkQKUldSdDZ5UEFmQW5DU2paVFVYaS9sQUFkcGRlNHdUU2xHQjlHNHhTbXV0T3F3UkRNSTNRTFNWZnEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDRjMxMDIyNzk5MjY1QTQKUldTa1paSjVJaER6ZkpVNVl0a0xkRkdSdGc4ZVVGZjZjSzdIS3BURzJ1NXc1Wk1iZzFFcythMXMK",
       "endpoints": [
         "https://github.com/Zburgers/mdview/releases/latest/download/latest.json"
-      ]
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
