@@ -108,7 +108,7 @@ export async function renderMarkdown(
     ADD_ATTR: ["target"]
   });
 
-  return applyImageResourcePolicy(sanitized, allowRemoteImages);
+  return applyPreviewElementPolicy(sanitized, allowRemoteImages);
 }
 
 export function promoteStandaloneMermaid(markdown: string): string {
@@ -206,8 +206,17 @@ export function sanitizeMermaidSvg(
   return new XMLSerializer().serializeToString(root);
 }
 
-function applyImageResourcePolicy(html: string, allowRemoteImages: boolean): string {
+function applyPreviewElementPolicy(html: string, allowRemoteImages: boolean): string {
   const document = new DOMParser().parseFromString(html, "text/html");
+
+  document.querySelectorAll("input").forEach((input) => {
+    const isDisabledCheckbox =
+      input.getAttribute("type")?.toLowerCase() === "checkbox" && input.hasAttribute("disabled");
+    if (!isDisabledCheckbox) {
+      input.remove();
+    }
+  });
+
   document.querySelectorAll("img[src]").forEach((image) => {
     const originalSrc = image.getAttribute("src");
     if (!originalSrc) {
