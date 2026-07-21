@@ -52,6 +52,18 @@ describe("markdown helpers", () => {
     expect(html).not.toContain("<svg");
   });
 
+  it("preserves disabled task checkboxes while removing active raw inputs", async () => {
+    const html = await renderMarkdown(
+      '- [x] done\n\n<input type="text"><input type="image" src="https://example.com/tracker.png">'
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector('.task-list-item input[type="checkbox"][disabled]')).not.toBeNull();
+    expect(document.querySelector('input[type="text"]')).toBeNull();
+    expect(document.querySelector('input[type="image"]')).toBeNull();
+    expect(document.querySelectorAll("input")).toHaveLength(1);
+  });
+
   it("renders inline code inside links", async () => {
     const html = await renderMarkdown(
       "[PostgreSQL `SELECT` / `SKIP LOCKED`](https://www.postgresql.org/docs/current/sql-select.html)"
