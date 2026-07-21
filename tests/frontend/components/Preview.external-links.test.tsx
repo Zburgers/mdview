@@ -110,6 +110,18 @@ describe("Preview external link handling", () => {
     expect(openUrlMock).not.toHaveBeenCalled();
   });
 
+  it("prevents the native context menu from exposing a direct navigation path", async () => {
+    renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
+
+    render(<Preview markdown="[Docs](https://example.com/docs)" filePath={null} theme="light" searchQuery="" />);
+
+    const dispatched = fireEvent.contextMenu(await screen.findByRole("link", { name: "Docs" }));
+
+    expect(dispatched).toBe(false);
+    expect(askMock).not.toHaveBeenCalled();
+    expect(openUrlMock).not.toHaveBeenCalled();
+  });
+
   it("shows a native error when the system browser cannot be opened", async () => {
     renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
     askMock.mockResolvedValue(true);
