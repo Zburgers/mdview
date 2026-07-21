@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.4]
+
+_Unreleased release candidate_
+
+### Added
+- Added a **Remote Images** preference that keeps external Markdown and raw HTML images blocked by default.
+- Added native confirmation before HTTP and HTTPS links open in the operating system's default browser.
+- Added native error and blocked-link dialogs for failed, local-file, or unsupported navigation attempts.
+- Added Mermaid source preflight and generated-SVG resource filtering so diagrams cannot bypass the remote-image preference.
+- Added atomic settings writes with temporary-file flushing, last-known-good backups, corrupt-file preservation, and backup recovery.
+- Added regression coverage and security documentation for the Markdown, raw HTML, image, Mermaid, and link sandbox.
+
+### Changed
+- Rendered Markdown links are intercepted before the embedded webview can navigate.
+- Protocol-relative remote image URLs are normalized to HTTPS only after the user enables Remote Images.
+- Settings finish loading before frontend persistence begins, preventing default startup state from overwriting saved preferences.
+- Application-level scrolling is constrained to the source and preview panes so the title bar, tabs, toolbar, and status area remain stable.
+- Removed transformed workspace-layer behavior that could interfere with desktop text rendering and pane layout.
+
+### Fixed
+- Fixed issue #4, where opening a Markdown file could automatically request a remote tracking image.
+- Fixed Mermaid-generated SVG and external image nodes as a bypass around ordinary Markdown image filtering.
+- Fixed external links falling through to in-app webview navigation paths instead of a native confirmation flow.
+- Fixed issue #5, where an interrupted settings write could corrupt `settings.json` and silently reset preferences.
+- Fixed startup settings hydration racing with the first automatic settings save.
+- Fixed long documents causing the full webview page to scroll instead of the intended editor or reader pane.
+
 ## [1.2.3]
 
 _Released: 2026-07-08_
@@ -23,12 +50,12 @@ _Released: 2026-07-07_
 - **Three Premium Themes**:
   - `Nordic`: Frost-inspired cool dark theme with a clean slate canvas and ice-blue highlights.
   - `Velvet`: Royal dark purple theme featuring a deep plum canvas and rich violet highlights.
-  - `Crimson`: Elegant burgundy theme with a dark cherry canvas and rose-red highlights.
-- **Visual Theme Swatches**: Integrated dual-tone gradient preview swatches to both the Settings theme selector and the Toolbar dropdown, representing the canvas and accent color combination for each theme.
+  - `Crimson`: Elegant burgundy theme featuring a dark cherry canvas and rose-red highlights.
+- **Visual Theme Swatches**: Integrated dual-tone gradient preview swatches into the Settings theme selector and Toolbar dropdown, representing each theme's canvas and accent combination.
 
 ### Changed
-- **Stunning Landing Page**: Redesigned the default empty state into a high-fidelity landing page dashboard. Features a glowing file/sparkles logo badge, clean typography, dual hover-elevated cards for opening files and creating drafts, and an aligned bottom features showcase.
-- **Custom Theme Dropdown**: Replaced the native browser dropdown menu with a custom theme switcher component featuring smooth CSS animations, custom theme swatches, and click-outside dismissal.
-- **Polished Settings Drawer**: Upgraded the settings section with premium interactive iOS-style sliding switch toggles for editor preferences like Sync Scroll.
-- **Theme Color Refinements**: Retuned the color variables of existing themes (Graphite, Quartz, Paper, Midnight, Sage) for deeper contrast, modern harmony, and visual excellence.
-- **Rounded Recent Files Grid**: Redesigned the recent files listing as a clean, rounded grid containing file icons, metadata, and smooth hover elevations.
+- **Landing Page**: Redesigned the default empty state into a polished landing dashboard with a file/sparkles logo badge, dual action cards, and a feature overview.
+- **Custom Theme Dropdown**: Replaced the native browser dropdown with a custom theme switcher featuring theme swatches and click-outside dismissal.
+- **Settings Drawer**: Upgraded editor preferences with interactive sliding toggles.
+- **Theme Color Refinements**: Retuned Graphite, Quartz, Paper, Midnight, and Sage for improved contrast and consistency.
+- **Recent Files Grid**: Redesigned recent-file entries as rounded cards with icons and hover feedback.
