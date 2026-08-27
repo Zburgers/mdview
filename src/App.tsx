@@ -742,9 +742,10 @@ export default function App() {
               </button>
             </div>
 
-            <section className="settings-section">
-              <h3>Theme</h3>
-              <div className="theme-grid">
+            <div className="settings-content">
+              <section className="settings-section">
+                <h3>Theme</h3>
+                <div className="theme-grid">
                 {(["system", "light", "dark", "paper", "midnight", "sage", "nordic", "velvet", "crimson"] as const).map((theme) => (
                   <button
                     key={theme}
@@ -755,10 +756,10 @@ export default function App() {
                     <span>{themeLabel(theme)}</span>
                   </button>
                 ))}
-              </div>
-            </section>
+                </div>
+              </section>
 
-            <section className="settings-section">
+              <section className="settings-section">
               <h3>Editor</h3>
               <button
                 className="setting-row-toggle"
@@ -801,9 +802,9 @@ export default function App() {
                   <span className="switch-thumb" />
                 </div>
               </button>
-            </section>
+              </section>
 
-            <section className="settings-section app-info">
+              <section className="settings-section app-info">
               <h3>App Info</h3>
               <dl>
                 <div>
@@ -819,9 +820,9 @@ export default function App() {
                   <dd>Strict mode</dd>
                 </div>
               </dl>
-            </section>
+              </section>
 
-            <section className="settings-section">
+              <section className="settings-section">
               <h3>Updates</h3>
               <button
                 className="setting-row-toggle"
@@ -836,7 +837,8 @@ export default function App() {
                 <RefreshCw size={18} />
               </button>
               {updateStatus ? <p className="settings-note">{updateStatus}</p> : null}
-            </section>
+              </section>
+            </div>
           </aside>
         </div>
       ) : null}

@@ -226,6 +226,7 @@ select:focus-visible {
 }
 
 .window-titlebar {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -246,6 +247,55 @@ select:focus-visible {
   padding: 0 10px 0 12px;
   cursor: default;
 }
+
+.window-resize-handles {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.resize-handle {
+  position: absolute;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.resize-handle.north,
+.resize-handle.south {
+  right: 6px;
+  left: 6px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-handle.north { top: 0; }
+.resize-handle.south { bottom: 0; }
+
+.resize-handle.east,
+.resize-handle.west {
+  top: 6px;
+  bottom: 6px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-handle.east { right: 0; }
+.resize-handle.west { left: 0; }
+
+.resize-handle.north-east,
+.resize-handle.north-west,
+.resize-handle.south-east,
+.resize-handle.south-west {
+  width: 10px;
+  height: 10px;
+  z-index: 2;
+}
+
+.resize-handle.north-east { top: 0; right: 0; cursor: nesw-resize; }
+.resize-handle.north-west { top: 0; left: 0; cursor: nwse-resize; }
+.resize-handle.south-east { right: 0; bottom: 0; cursor: nwse-resize; }
+.resize-handle.south-west { bottom: 0; left: 0; cursor: nesw-resize; }
 
 .window-brand {
   color: var(--accent);
@@ -308,8 +358,8 @@ select:focus-visible {
   align-items: end;
   gap: 4px;
   min-width: 0;
-  min-height: 40px;
-  padding: 6px 12px 0;
+  min-height: 36px;
+  padding: 4px 12px 0;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel), var(--bg) 18%);
   overflow-x: auto;
@@ -320,19 +370,28 @@ select:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
-  min-width: 120px;
-  max-width: 220px;
-  height: 34px;
-  border: 1px solid color-mix(in srgb, var(--border), transparent 12%);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-  background: color-mix(in srgb, var(--panel-soft), transparent 22%);
+  min-width: 132px;
+  max-width: 240px;
+  height: 31px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
   color: var(--muted);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.document-tab:hover {
+  background: color-mix(in srgb, var(--panel-soft), transparent 34%);
+  color: var(--text);
 }
 
 .document-tab.active {
   background: var(--panel);
   color: var(--text);
+  border-color: color-mix(in srgb, var(--border), transparent 28%);
+  border-bottom-color: var(--accent);
+  box-shadow: 0 -1px 0 color-mix(in srgb, var(--accent), transparent 45%);
 }
 
 .document-tab > button[role="tab"] {
@@ -376,6 +435,12 @@ select:focus-visible {
 
 .tab-close:hover {
   background: color-mix(in srgb, var(--text), transparent 90%);
+}
+
+.tab-strip::-webkit-scrollbar { height: 5px; }
+.tab-strip::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted), transparent 50%);
 }
 
 .toolbar-actions,
@@ -1351,15 +1416,20 @@ select:focus-visible {
 .settings-backdrop {
   display: flex;
   justify-content: flex-end;
+  padding: 12px;
+  overscroll-behavior: contain;
 }
 
 .settings-panel {
   display: grid;
-  align-content: start;
-  gap: 22px;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  gap: 0;
   width: min(420px, 100%);
   height: 100%;
-  padding: 22px;
+  min-height: 0;
+  padding: 20px 20px 0;
+  overflow: hidden;
   border-radius: 16px;
   animation: settings-in 220ms ease both;
 }
@@ -1378,6 +1448,15 @@ select:focus-visible {
 
 .settings-header h2 {
   font-size: 2rem;
+}
+
+.settings-content {
+  min-height: 0;
+  margin-top: 18px;
+  padding: 2px 4px 28px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .settings-section {

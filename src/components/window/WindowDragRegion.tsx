@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { startWindowDrag } from "../../lib/windowControls";
+import { startWindowDrag, toggleMaximizeWindow } from "../../lib/windowControls";
 
 type WindowDragRegionProps = {
   children: ReactNode;
@@ -10,9 +10,14 @@ export function WindowDragRegion({ children }: WindowDragRegionProps) {
     <div
       className="window-drag-region"
       data-testid="window-drag-region"
-      data-tauri-drag-region
-      onPointerDown={() => {
-        void startWindowDrag();
+      onPointerDown={(event) => {
+        if (event.button === 0 && event.detail <= 1) {
+          void startWindowDrag();
+        }
+      }}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        void toggleMaximizeWindow();
       }}
     >
       {children}
