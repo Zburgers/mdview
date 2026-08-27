@@ -25,7 +25,6 @@ permissions:
 jobs:
   validate:
     name: Validate
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +50,12 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: pnpm install --frozen-lockfile
+      - name: Validate release version sources
+        run: node scripts/validate-release-version.mjs
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+      - name: Validate tagged release version
+        run: node scripts/validate-release-version.mjs --tag "${GITHUB_REF_NAME}"
+        if: startsWith(github.ref, 'refs/tags/v')
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm build
@@ -63,10 +68,10 @@ jobs:
 
   bundle:
     name: Bundle ${{ matrix.platform }}
+    needs: validate
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
+      github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -143,10 +148,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: bundle
-    if: >-
-      startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -160,11 +162,9 @@ jobs:
         shell: bash
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            tag="v${version}"
-          fi
+          tag="${GITHUB_REF_NAME}"
+          test "${tag}" = "v${version}"
+          grep -q "^## \[${version}\]$" CHANGELOG.md
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -180,10 +180,7 @@ jobs:
             ' CHANGELOG.md
           } > "$notes_file"
 
-          if ! grep -q '[^[:space:]]' "$notes_file"; then
-            echo "# mdview ${tag}" > "$notes_file"
-            echo "Release ${tag}." >> "$notes_file"
-          fi
+          test "$(wc -l < "$notes_file")" -gt 2
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -198,6 +195,8 @@ jobs:
             --repo "${{ github.repository }}" \
             --assets-dir release-assets \
             --output latest.json
+      - name: Validate generated updater manifest
+        run: node scripts/validate-release-version.mjs --tag "${{ steps.release.outputs.tag }}" --latest latest.json
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
@@ -205,7 +204,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
-          overwrite_files: true
+          overwrite_files: false
           make_latest: true
           files: |
             release-assets/**/*.AppImage

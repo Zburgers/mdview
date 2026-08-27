@@ -74,6 +74,20 @@ describe("markdown helpers", () => {
     );
   });
 
+  it.each([
+    "`outside` and [ordinary `inside`](https://example.com/docs)",
+    "[reference `inside`][docs] and `outside`\n\n[docs]: https://example.com/docs",
+    "[*emphasis `one`* and **strong `two`**](https://example.com/docs)",
+    "## [heading `code`](https://example.com/docs)\n\n- [list `code`](https://example.com/docs)",
+    "| [cell `code`](https://example.com/docs) | `other` |\n| --- | --- |",
+    "[first](https://one.example), [second `code`](https://two.example)!",
+    "<https://example.com> and [label `code`](https://example.com/docs)"
+  ])("renders valid nested inline Markdown without a Marked token error", async (markdown) => {
+    const html = await renderMarkdown(markdown);
+    expect(html).not.toContain("Token with");
+    expect(html).toContain("<code>");
+  });
+
   it("blocks remote image requests by default while preserving local images", async () => {
     const html = await renderMarkdown(
       "![Remote](https://example.com/tracker.png)\n\n![Local](images/diagram.png)\n\n![Protocol relative](//example.com/tracker.png)"
@@ -81,7 +95,7 @@ describe("markdown helpers", () => {
     const document = new DOMParser().parseFromString(html, "text/html");
 
     expect(document.querySelector('img[alt="Remote"]')?.getAttribute("src")).toBeNull();
-    expect(document.querySelector('img[alt="Remote"]')).toHaveClass("blocked-image-source");
+    expect(document.querySelector('img[alt="Remote"]')?.classList.contains("blocked-image-source")).toBe(true);
     expect(document.querySelector('img[alt="Protocol relative"]')?.getAttribute("src")).toBeNull();
     expect(document.querySelector('img[alt="Local"]')?.getAttribute("src")).toBe("images/diagram.png");
   });

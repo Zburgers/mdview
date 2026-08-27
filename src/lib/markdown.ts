@@ -1,24 +1,15 @@
 import DOMPurify from "dompurify";
-import { Marked, Renderer } from "marked";
+import { Marked } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
 const remoteResourcePattern = /(?:https?|ftps?|wss?):\/\/|(?:^|[\s("'=])\/\/[a-z0-9]/i;
 const allowedDataImagePattern =
   /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i;
 
-const renderer = new Renderer();
-
-renderer.link = function ({ href, title, tokens }) {
-  const text = this.parser.parseInline(tokens);
-  const safeTitle = title ? ` title="${escapeAttribute(title)}"` : "";
-  return `<a href="${escapeAttribute(href)}"${safeTitle} rel="noreferrer">${text}</a>`;
-};
-
 const markedParser = new Marked({
   async: false,
   breaks: false,
-  gfm: true,
-  renderer
+  gfm: true
 });
 
 export type NormalizedMarkdown = {
@@ -209,6 +200,10 @@ export function sanitizeMermaidSvg(
 function applyPreviewElementPolicy(html: string, allowRemoteImages: boolean): string {
   const document = new DOMParser().parseFromString(html, "text/html");
 
+  document.querySelectorAll("a[href]").forEach((anchor) => {
+    anchor.setAttribute("rel", "noreferrer");
+  });
+
   document.querySelectorAll("input").forEach((input) => {
     const isDisabledCheckbox =
       input.getAttribute("type")?.toLowerCase() === "checkbox" && input.hasAttribute("disabled");
@@ -284,14 +279,6 @@ function addTaskListClasses(html: string): string {
     /<li>(<input (?:checked="" )?disabled="" type="checkbox">)/g,
     '<li class="task-list-item">$1'
   );
-}
-
-function escapeAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function isMermaidStart(line: string): boolean {
