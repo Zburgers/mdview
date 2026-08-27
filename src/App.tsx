@@ -2,7 +2,6 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, RefreshCw, Sparkles, X } from "lucide-react";
-import packageInfo from "../package.json";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
@@ -10,6 +9,7 @@ import { defaultSettings } from "./lib/defaults";
 import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "./lib/markdown";
 import {
   checkForUpdates,
+  getNativeAppVersion,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
@@ -53,6 +53,7 @@ export default function App() {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [systemDark, setSystemDark] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
   const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
@@ -71,6 +72,7 @@ export default function App() {
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
   const previewTheme = actualTheme === "light" || actualTheme === "paper" ? "light" : "dark";
   const hasDocument = documentState.isOpen;
+  const appVersionLabel = appVersion ? `v${appVersion}` : "Version unavailable";
   const searchMatchCount = useMemo(() => {
     const query = searchQuery.trim();
     if (!query) {
@@ -79,6 +81,12 @@ export default function App() {
 
     return (documentState.markdown.match(new RegExp(escapeRegExp(query), "gi")) ?? []).length;
   }, [documentState.markdown, searchQuery]);
+
+  useEffect(() => {
+    getNativeAppVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(null));
+  }, []);
 
   useEffect(() => {
     loadSettings()
@@ -549,7 +557,7 @@ export default function App() {
         query={searchQuery}
         searchMatchCount={searchMatchCount}
         syncScroll={settings.syncScroll}
-        appVersion={packageInfo.version}
+        appVersion={appVersion ?? "Version unavailable"}
         onNewFile={handleNewFile}
         onOpen={handleOpen}
         onSave={handleSave}
@@ -626,7 +634,7 @@ export default function App() {
                   <FileText size={40} className="hero-logo-icon" />
                   <Sparkles size={20} className="hero-logo-badge" />
                 </div>
-                <p className="eyebrow">Local Markdown companion • v{packageInfo.version}</p>
+                <p className="eyebrow">Local Markdown companion • {appVersionLabel}</p>
                 <div className="gradient-heading" style={{ fontSize: "clamp(2.4rem, 6vw, 3.8rem)", fontWeight: 850, letterSpacing: "-0.03em", margin: "12px 0 8px" }}>MDView</div>
                 <p className="landing-subtitle">
                   A high-fidelity reader and editor for your local Markdown documents.
@@ -809,7 +817,7 @@ export default function App() {
               <dl>
                 <div>
                   <dt>Version</dt>
-                  <dd>v{packageInfo.version}</dd>
+                  <dd>{appVersionLabel}</dd>
                 </div>
                 <div>
                   <dt>Renderer</dt>

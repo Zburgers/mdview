@@ -4,6 +4,7 @@ import App from "../../../src/App";
 import { defaultSettings } from "../../../src/lib/defaults";
 import {
   checkForUpdates,
+  getNativeAppVersion,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
@@ -65,6 +66,7 @@ vi.mock("../../../src/lib/tauri", () => ({
   startupOpenFile: vi.fn(),
   writeMarkdownFile: vi.fn(),
   checkForUpdates: vi.fn(),
+  getNativeAppVersion: vi.fn(() => Promise.resolve("1.2.4")),
   openMarkdownWindow: vi.fn()
 }));
 
@@ -307,12 +309,12 @@ describe("App desktop layout", () => {
   it("checks for updates from settings and reports the current version", async () => {
     vi.mocked(checkForUpdates).mockResolvedValue({
       status: "current",
-      currentVersion: "1.2.3"
+      currentVersion: "1.2.4"
     });
 
     render(<App />);
 
-    fireEvent.click(await screen.findByTitle("Settings and app info, mdview 1.2.3"));
+    fireEvent.click(await screen.findByTitle("Settings and app info, mdview 1.2.4"));
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
 
     expect(checkForUpdates).toHaveBeenCalledTimes(1);

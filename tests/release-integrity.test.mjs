@@ -35,6 +35,10 @@ test("updater manifest requires matching tag and signed assets", async () => {
   const manifest = JSON.parse(await readFile(output, "utf8"));
   assert.equal(manifest.version, "1.2.4");
   assert.equal(manifest.platforms["linux-x86_64"].signature, "signature");
+  assert.equal(
+    manifest.platforms["linux-x86_64"].url,
+    "https://github.com/Zburgers/mdview/releases/download/v1.2.4/mdview.AppImage"
+  );
 
   await assert.rejects(
     exec(process.execPath, [
@@ -43,4 +47,14 @@ test("updater manifest requires matching tag and signed assets", async () => {
     ], { cwd: root }),
     /does not match version/
   );
+});
+
+test("release workflow validates before bundling and publishes tags only", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/release-build.yml"), "utf8");
+  assert.match(workflow, /node --test tests\/release-integrity\.test\.mjs/);
+  assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?needs: validate/);
+  assert.match(workflow, /publish-release:[\s\S]*?if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(workflow, /Refuse to mutate a release from another commit/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ !startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
+  assert.doesNotMatch(workflow, /publish_release/);
 });

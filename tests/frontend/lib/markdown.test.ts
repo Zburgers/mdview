@@ -81,11 +81,20 @@ describe("markdown helpers", () => {
     "## [heading `code`](https://example.com/docs)\n\n- [list `code`](https://example.com/docs)",
     "| [cell `code`](https://example.com/docs) | `other` |\n| --- | --- |",
     "[first](https://one.example), [second `code`](https://two.example)!",
-    "<https://example.com> and [label `code`](https://example.com/docs)"
+    "<https://example.com> and [label `code`](https://example.com/docs)",
+    "[PostgreSQL `SELECT` / `SKIP LOCKED`](https://www.postgresql.org/docs/current/sql-select.html)",
+    "[punctuation `C++ / foo.bar()` and `x/y`](https://example.com/docs)",
+    "# PRD\n\n[API `GET /v1/items` and `200 OK`](https://example.com/api)\n\n- [SQL `SELECT` / `SKIP LOCKED`](https://example.com/sql)"
   ])("renders valid nested inline Markdown without a Marked token error", async (markdown) => {
     const html = await renderMarkdown(markdown);
     expect(html).not.toContain("Token with");
     expect(html).toContain("<code>");
+  });
+
+  it("renders escaped backticks around links without a Marked token error", async () => {
+    const html = await renderMarkdown("\\`literal\\` and [ordinary link](https://example.com/docs)");
+    expect(html).not.toContain("Token with");
+    expect(html).toContain("ordinary link");
   });
 
   it("blocks remote image requests by default while preserving local images", async () => {

@@ -1,9 +1,9 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
-import packageInfo from "../../package.json";
 import type { AppSettings, ReadFileResponse, UpdateCheckResult } from "../types";
 
 const markdownFilters = [
@@ -48,6 +48,14 @@ export function saveSettings(settings: AppSettings): Promise<void> {
   return invoke("save_settings", { settings });
 }
 
+export async function getNativeAppVersion(): Promise<string> {
+  const version = await getVersion();
+  if (!isValidVersion(version)) {
+    throw new Error(`Installed application reports an invalid version: ${version}`);
+  }
+  return version;
+}
+
 export function startupOpenFile(): Promise<string | null> {
   return invoke("startup_open_file");
 }
@@ -72,8 +80,14 @@ export function openMarkdownWindow(path: string): Promise<void> {
 }
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
-  const update = await check();
-  const currentVersion = packageInfo.version;
+  let update: Awaited<ReturnType<typeof check>>;
+  try {
+    update = await check();
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Could not check for updates: ${detail}`);
+  }
+  const currentVersion = await getNativeAppVersion();
 
   if (!update) {
     return { status: "current", currentVersion };
@@ -94,7 +108,12 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     throw new Error(`Could not install mdview ${update.version}: ${detail}`);
   }
 
-  await relaunch();
+  try {
+    await relaunch();
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Update ${update.version} installed, but mdview could not restart: ${detail}`);
+  }
 
   return { status: "installed", version: update.version };
 }
@@ -146,12 +165,16 @@ export function compareVersions(left: string, right: string): number {
 }
 
 function parseVersion(version: string): Semver | null {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(version);
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
   if (!match) return null;
+  const prerelease = match[4]?.split(".") ?? [];
+  if (prerelease.some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0"))) {
+    return null;
+  }
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
     patch: Number(match[3]),
-    prerelease: match[4]?.split(".") ?? []
+    prerelease
   };
 }

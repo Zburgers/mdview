@@ -21,7 +21,7 @@ if (new Set(Object.values(versions)).size !== 1) {
 }
 
 if (tag) {
-  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(tag)) {
+  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(tag)) {
     throw new Error(`Invalid release tag: ${tag}`);
   }
   if (tag.slice(1) !== packageJson.version) {
@@ -50,5 +50,8 @@ function optionalArgument(name) {
 }
 
 function isSemver(value) {
-  return typeof value === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value);
+  if (typeof value !== "string") return false;
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  if (!match) return false;
+  return !(match[4] ?? "").split(".").some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0"));
 }

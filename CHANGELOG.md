@@ -12,6 +12,7 @@ _Unreleased release candidate_
 - Added native error and blocked-link dialogs for failed, local-file, or unsupported navigation attempts.
 - Added Mermaid source preflight and generated-SVG resource filtering so diagrams cannot bypass the remote-image preference.
 - Added atomic settings writes with temporary-file flushing, last-known-good backups, corrupt-file preservation, and backup recovery.
+- Added native frameless-window edge and corner resize handles using Tauri's window resize API.
 - Added regression coverage and security documentation for the Markdown, raw HTML, image, Mermaid, and link sandbox.
 
 ### Changed
@@ -19,6 +20,9 @@ _Unreleased release candidate_
 - Protocol-relative remote image URLs are normalized to HTTPS only after the user enables Remote Images.
 - Settings finish loading before frontend persistence begins, preventing default startup state from overwriting saved preferences.
 - Application-level scrolling is constrained to the source and preview panes so the title bar, tabs, toolbar, and status area remain stable.
+- Redesigned document tabs as compact, theme-aware editor tabs while preserving keyboard, ARIA, close, dirty-state, and reorder behavior.
+- The settings drawer now owns its vertical scrolling and remains usable at the minimum window height.
+- The displayed application version comes from the installed Tauri application metadata, and updater responses are checked with semantic-version ordering before installation.
 - Removed transformed workspace-layer behavior that could interfere with desktop text rendering and pane layout.
 
 ### Fixed
@@ -28,6 +32,9 @@ _Unreleased release candidate_
 - Fixed issue #5, where an interrupted settings write could corrupt `settings.json` and silently reset preferences.
 - Fixed startup settings hydration racing with the first automatic settings save.
 - Fixed long documents causing the full webview page to scroll instead of the intended editor or reader pane.
+- Fixed a Marked inline-token crash caused by manually reparsing nested link tokens, including valid codespans in links.
+- Stabilized manual frameless title-bar drag and maximize/restore handling by removing competing drag-region behavior.
+- Added release-version and updater-manifest validation so package, native, tag, and published updater versions cannot silently diverge.
 
 ## [1.2.3]
 
