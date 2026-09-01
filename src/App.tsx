@@ -10,6 +10,7 @@ import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "
 import {
   checkForUpdates,
   getNativeAppVersion,
+  copyAttachment,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
@@ -19,6 +20,12 @@ import {
   startupOpenFile,
   writeMarkdownFile
 } from "./lib/tauri";
+import {
+  classifyAttachment,
+  markdownForAttachment,
+  relativePosix,
+  sanitizeAttachmentName
+} from "./lib/attachments";
 import type { AppSettings, MarkdownDocument, MarkdownTab, ReadFileResponse, ThemePreference, ViewMode } from "./types";
 import "./styles.css";
 
@@ -123,14 +130,21 @@ export default function App() {
   useEffect(() => {
     const unlistenPromise = listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
       const candidate = event.payload.paths.find(isMarkdownLikePath);
-      if (candidate) {
+      if (candidate && event.payload.paths.length === 1) {
         void openExternalPath(candidate);
+        return;
       }
+      // If multiple or non-markdown paths, treat as attachment drops if doc is open
+      if (documentState.isOpen && event.payload.paths.length > 0) {
+        void handleDroppedPaths(event.payload.paths);
+        return;
+      }
+      if (candidate) void openExternalPath(candidate);
     });
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
     };
-  }, []);
+  }, [documentState.isOpen, documentState.path, documentState.markdown]);
 
   useEffect(() => {
     const unlistenPromise = listen<string>("cli-open-file", (event) => {
@@ -464,6 +478,216 @@ export default function App() {
     setSettings((current) => ({ ...current, ...update }));
   }
 
+  async function handleToggleTask(line: number) {
+    const lines = documentState.markdown.split("\n");
+    if (line < 0 || line >= lines.length) return;
+    const original = lines[line];
+    const toggled = original.replace(
+      /^(\s*[-*+]\s+)\[([ xX])\]/,
+      (_m: string, prefix: string, mark: string) =>
+        `${prefix}[${mark.trim().toLowerCase() === "x" ? " " : "x"}]`
+    );
+    if (toggled === original) return;
+    lines[line] = toggled;
+    const nextMarkdown = lines.join("\n");
+    updateActiveDocument((current) => ({ ...current, markdown: nextMarkdown, dirty: true }));
+    if (documentState.path) {
+      try {
+        await writeMarkdownFile(documentState.path, nextMarkdown);
+        updateActiveDocument((current) => ({ ...current, dirty: false }));
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : "Could not save checkbox state.");
+      }
+    }
+  }
+
+  function handleOpenWikilink(target: string, heading?: string) {
+    if (!target) return;
+    // Try to find in recentFiles by basename match
+    const candidates = settings.recentFiles.filter((f) => {
+      const base = f.split(/[\\/]/).pop()?.replace(/\.(md|markdown|mdown|mkd)$/i, "") ?? "";
+      return base.toLowerCase() === target.toLowerCase() || f.toLowerCase().endsWith(`/${target.toLowerCase()}.md`);
+    });
+    if (candidates.length > 0) {
+      void openPath(candidates[0]);
+      return;
+    }
+    // Try relative to current file directory
+    if (documentState.path) {
+      const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
+      const guesses = [
+        `${baseDir}/${target}.md`,
+        `${baseDir}/${target}`,
+        `${target}.md`,
+      ];
+      for (const g of guesses) {
+        // we optimistically try to open; if fails, status will show
+        void openPath(g);
+        return;
+      }
+    }
+    setStatus(`Linked note not found: ${target}${heading ? `#${heading}` : ""}`);
+  }
+
+  function insertAtCursor(insertText: string) {
+    const el = sourceRef.current;
+    if (!el) {
+      updateActiveDocument((current) => ({
+        ...current,
+        markdown: current.markdown ? `${current.markdown}\n${insertText}` : insertText,
+        dirty: true
+      }));
+      return;
+    }
+    const start = el.selectionStart ?? documentState.markdown.length;
+    const end = el.selectionEnd ?? start;
+    const before = documentState.markdown.slice(0, start);
+    const after = documentState.markdown.slice(end);
+    const next = `${before}${insertText}${after}`;
+    updateActiveDocument((current) => ({ ...current, markdown: next, dirty: true }));
+    requestAnimationFrame(() => {
+      const pos = start + insertText.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
+  async function handleDroppedPaths(paths: string[]) {
+    if (!documentState.isOpen) return;
+    if (!documentState.path) {
+      setStatus("Save the file first, then drop attachments.");
+      return;
+    }
+    const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
+    for (const dropped of paths) {
+      // If markdown-like, open it rather than link
+      if (isMarkdownLikePath(dropped)) {
+        // if already open context is drag for link? prefer link when modifier? For now, insert link for drag from explorer
+        // Check if it's within same dir: insert link instead of opening when dropped inside editor area
+        // We distinguish by caller: this path handler is for content insertion, so treat markdown as link too
+      }
+      const fileName = dropped.split(/[\\/]/).pop() ?? dropped;
+      const sanitized = sanitizeAttachmentName(fileName);
+      const kind = classifyAttachment(sanitized);
+      const dest = `${baseDir}/assets/${sanitized}`;
+      const alreadyInside = dropped.replaceAll("\\", "/").startsWith(baseDir.replaceAll("\\", "/") + "/");
+      try {
+        let rel: string;
+        if (alreadyInside) {
+          rel = relativePosix(documentState.path, dropped);
+        } else {
+          const copied = await copyAttachment(dropped, dest);
+          rel = relativePosix(documentState.path, copied);
+        }
+        insertAtCursor(markdownForAttachment(kind, rel, sanitized));
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : `Could not attach ${sanitized}`);
+      }
+    }
+  }
+
+  async function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.files);
+    if (files.length === 0) return;
+    // Only handle image files for paste; text handled normally
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+    if (!documentState.isOpen) return;
+    if (!documentState.path) {
+      setStatus("Save the file first, then paste images.");
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
+    for (const file of imageFiles) {
+      const sanitized = sanitizeAttachmentName(file.name || `pasted-${Date.now()}.png`);
+      const dest = `${baseDir}/assets/${sanitized}`;
+      try {
+        // Use plugin-fs writeFile for blob, falling back to copy if needed
+        // For clipboard Files, we write the blob bytes via Tauri fs plugin
+        const { writeFile } = await import("@tauri-apps/plugin-fs");
+        const buffer = new Uint8Array(await file.arrayBuffer());
+        if (buffer.length > 20 * 1024 * 1024) {
+          setStatus(`File too large (20 MB limit): ${sanitized}`);
+          continue;
+        }
+        // Ensure collision handling similar to copyAttachment
+        let finalDest = dest;
+        // Try copyAttachment path first via writing temp then copy? Simpler: write directly
+        // we mimic copyAttachment collision by checking existence
+        const { exists } = await import("@tauri-apps/plugin-fs");
+        if (await exists(finalDest)) {
+          const dot = sanitized.lastIndexOf(".");
+          const stem = dot >= 0 ? sanitized.slice(0, dot) : sanitized;
+          const ext = dot >= 0 ? sanitized.slice(dot) : "";
+          let idx = 1;
+          while (await exists(`${baseDir}/assets/${stem} (${idx})${ext}`)) idx += 1;
+          finalDest = `${baseDir}/assets/${stem} (${idx})${ext}`;
+        }
+        await writeFile(finalDest, buffer);
+        const rel = relativePosix(documentState.path, finalDest);
+        const kind = classifyAttachment(sanitized);
+        insertAtCursor(markdownForAttachment(kind, rel, sanitized));
+      } catch (cause) {
+        setStatus(cause instanceof Error ? cause.message : `Could not paste ${sanitized}`);
+      }
+    }
+  }
+
+  function handleDragOver(event: React.DragEvent<HTMLTextAreaElement>) {
+    if (event.dataTransfer.types.includes("Files")) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  async function handleDrop(event: React.DragEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    const paths: string[] = [];
+    for (const f of files) {
+      // Tauri may expose path via custom property; fallback to name
+      const possiblePath = (f as unknown as { path?: string }).path;
+      if (possiblePath) paths.push(possiblePath);
+      else {
+        // For web File without path, handle like paste: write blob
+        if (!documentState.path) {
+          setStatus("Save the file first, then drop files.");
+          continue;
+        }
+        const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
+        const sanitized = sanitizeAttachmentName(f.name || `dropped-${Date.now()}`);
+        try {
+          const { writeFile, exists } = await import("@tauri-apps/plugin-fs");
+          const buffer = new Uint8Array(await f.arrayBuffer());
+          if (buffer.length > 20 * 1024 * 1024) {
+            setStatus(`File too large: ${sanitized}`);
+            continue;
+          }
+          let finalDest = `${baseDir}/assets/${sanitized}`;
+          if (await exists(finalDest)) {
+            const dot = sanitized.lastIndexOf(".");
+            const stem = dot >= 0 ? sanitized.slice(0, dot) : sanitized;
+            const ext = dot >= 0 ? sanitized.slice(dot) : "";
+            let idx = 1;
+            while (await exists(`${baseDir}/assets/${stem} (${idx})${ext}`)) idx += 1;
+            finalDest = `${baseDir}/assets/${stem} (${idx})${ext}`;
+          }
+          await writeFile(finalDest, buffer);
+          const rel = relativePosix(documentState.path, finalDest);
+          insertAtCursor(markdownForAttachment(classifyAttachment(sanitized), rel, sanitized));
+        } catch (cause) {
+          setStatus(cause instanceof Error ? cause.message : `Could not drop ${sanitized}`);
+        }
+      }
+    }
+    if (paths.length > 0) {
+      await handleDroppedPaths(paths);
+    }
+  }
+
   function onSourceScroll() {
     if (!settings.syncScroll || settings.viewMode !== "split" || !sourceRef.current || !previewRef.current) {
       return;
@@ -706,6 +930,9 @@ export default function App() {
               placeholder="Markdown source"
               spellCheck={false}
               onScroll={onSourceScroll}
+              onPaste={handlePaste}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
               onChange={(event) => {
                 const markdown = event.currentTarget.value;
                 updateActiveDocument((current) => ({
@@ -726,6 +953,8 @@ export default function App() {
               theme={previewTheme}
               searchQuery={searchQuery}
               allowRemoteImages={settings.allowRemoteImages}
+              onToggleTask={handleToggleTask}
+              onOpenWikilink={handleOpenWikilink}
             />
           </div>
         )}

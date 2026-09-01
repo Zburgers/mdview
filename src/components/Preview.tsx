@@ -17,9 +17,11 @@ type PreviewProps = {
   theme: "light" | "dark";
   searchQuery: string;
   allowRemoteImages?: boolean;
+  onToggleTask?: (line: number) => void;
+  onOpenWikilink?: (target: string, heading?: string) => void;
 };
 
-export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteImages = false }: PreviewProps) {
+export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteImages = false, onToggleTask, onOpenWikilink }: PreviewProps) {
   const [html, setHtml] = useState("");
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,8 +88,32 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
           host.textContent = cause instanceof Error ? cause.message : "Mermaid diagram failed";
         });
     });
+
+    // Enable task checkboxes (remove disabled) and wire change handler
+    const taskCheckboxes = root.querySelectorAll<HTMLLIElement>("li.task-list-item input[type=\"checkbox\"]");
+    taskCheckboxes.forEach((cb) => {
+      cb.removeAttribute("disabled");
+      // avoid stacking listeners: clone pattern not needed because effect re-runs on html change
+    });
+
+    const onChange = (event: Event) => {
+      const target = event.target as HTMLElement;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (!target.matches("li.task-list-item input[type=\"checkbox\"]")) return;
+      const lineAttr = target.getAttribute("data-line");
+      const line = lineAttr ? Number.parseInt(lineAttr, 10) : NaN;
+      if (Number.isFinite(line)) {
+        onToggleTask?.(line);
+      }
+    };
+    root.addEventListener("change", onChange);
+
     highlightText(root, searchQuery);
-  }, [allowRemoteImages, html, filePath, theme, searchQuery]);
+
+    return () => {
+      root.removeEventListener("change", onChange);
+    };
+  }, [allowRemoteImages, html, filePath, theme, searchQuery, onToggleTask]);
 
   useEffect(() => {
     mermaid.initialize({
@@ -99,6 +125,16 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
 
   async function handleLink(anchor: Element): Promise<void> {
     const href = anchor.getAttribute("href") ?? "";
+    // Wikilink handling
+    if (anchor.classList.contains("wikilink")) {
+      const target = anchor.getAttribute("data-wikilink") ?? href.replace(/^#wikilink-/, "");
+      const heading = anchor.getAttribute("data-heading") ?? undefined;
+      if (onOpenWikilink) {
+        onOpenWikilink(target, heading);
+        return;
+      }
+    }
+
     const classified = classifyHref(href);
 
     if (classified.kind === "external") {

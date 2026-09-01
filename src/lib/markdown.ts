@@ -12,6 +12,132 @@ const markedParser = new Marked({
   gfm: true
 });
 
+// Obsidian-style callouts: > [!NOTE] Title
+markedParser.use({
+  extensions: [
+    {
+      name: "callout",
+      level: "block" as const,
+      start(src: string) {
+        const idx = src.indexOf("> [!");
+        return idx >= 0 ? idx : undefined;
+      },
+      tokenizer(src: string) {
+        const rule = /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]([+-]?)\s*(.*)\n((?:>.*\n?)*)/;
+        const match = rule.exec(src);
+        if (!match) return undefined;
+        const full = match[0];
+        const calloutType = match[1].toLowerCase();
+        const fold = match[2] || "";
+        const title = match[3]?.trim() || calloutType;
+        const bodyRaw = match[4] || "";
+        const body = bodyRaw.replace(/^>\s?/gm, "").trim();
+        const bodyTokens = body ? (this as unknown as { lexer: { blockTokens: (s: string) => unknown[] } }).lexer.blockTokens(body) : [];
+        return {
+          type: "callout",
+          raw: full,
+          calloutType,
+          fold,
+          title,
+          body,
+          tokens: bodyTokens as never[],
+        };
+      },
+      renderer(token: unknown) {
+        const t = token as { calloutType: string; fold: string; title: string; body: string; tokens: unknown[] };
+        const bodyHtml = t.tokens?.length
+          ? (this as unknown as { parser: { parse: (toks: unknown[]) => string } }).parser.parse(t.tokens as never[])
+          : "";
+        return `<div class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold="${escapeAttribute(t.fold)}"><div class="callout-title">${escapeAttribute(t.title)}</div><div class="callout-body">${bodyHtml}</div></div>\n`;
+      },
+    },
+    {
+      name: "wikilink",
+      level: "inline" as const,
+      start(src: string) {
+        const idx = src.indexOf("[[");
+        return idx >= 0 ? idx : undefined;
+      },
+      tokenizer(src: string) {
+        const rule = /^\[\[([^\]|#^]+)(?:\|([^\]]+))?(?:#([^\]|^]+))?(?:\^([^\]]+))?\]\]/;
+        const match = rule.exec(src);
+        if (!match) return undefined;
+        const target = match[1].trim();
+        const alias = match[2]?.trim() || target;
+        const heading = match[3]?.trim() || "";
+        const block = match[4]?.trim() || "";
+        return {
+          type: "wikilink",
+          raw: match[0],
+          target,
+          alias,
+          heading,
+          block,
+        };
+      },
+      renderer(token: unknown) {
+        const t = token as { target: string; alias: string; heading: string; block: string };
+        const slug = slugifyWikilink(t.target);
+        const headingAttr = t.heading ? ` data-heading="${escapeAttribute(t.heading)}"` : "";
+        const blockAttr = t.block ? ` data-block="${escapeAttribute(t.block)}"` : "";
+        return `<a class="wikilink" data-wikilink="${escapeAttribute(t.target)}"${headingAttr}${blockAttr} href="#wikilink-${escapeAttribute(slug)}">${escapeAttribute(t.alias)}</a>`;
+      },
+    },
+    {
+      name: "mathInline",
+      level: "inline" as const,
+      start(src: string) {
+        const idx = src.indexOf("$");
+        return idx >= 0 ? idx : undefined;
+      },
+      tokenizer(src: string) {
+        // avoid matching $$ block start
+        if (src.startsWith("$$")) return undefined;
+        const rule = /^\$([^$\n]+?)\$/;
+        const match = rule.exec(src);
+        if (!match) return undefined;
+        // skip if contains only spaces
+        if (!match[1].trim()) return undefined;
+        return {
+          type: "mathInline",
+          raw: match[0],
+          math: match[1],
+        };
+      },
+      renderer(token: unknown) {
+        const t = token as { math: string };
+        return `<span class="math-inline" data-math="${escapeAttribute(t.math)}">${escapeAttribute(t.math)}</span>`;
+      },
+    },
+    {
+      name: "mathBlock",
+      level: "block" as const,
+      start(src: string) {
+        const idx = src.indexOf("$$");
+        return idx >= 0 ? idx : undefined;
+      },
+      tokenizer(src: string) {
+        const rule = /^\$\$([\s\S]+?)\$\$/;
+        const match = rule.exec(src);
+        if (!match) return undefined;
+        return {
+          type: "mathBlock",
+          raw: match[0],
+          math: match[1].trim(),
+        };
+      },
+      renderer(token: unknown) {
+        const t = token as { math: string };
+        return `<div class="math-block" data-math="${escapeAttribute(t.math)}"><code>${escapeAttribute(t.math)}</code></div>\n`;
+      },
+    },
+  ],
+});
+
+function slugifyWikilink(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 export type NormalizedMarkdown = {
   text: string;
   warning: string | null;
@@ -46,11 +172,24 @@ export function getMarkdownFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
+export function getTaskLineMap(markdown: string): number[] {
+  const lines = markdown.split("\n");
+  const map: number[] = [];
+  lines.forEach((line, idx) => {
+    if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) {
+      map.push(idx);
+    }
+  });
+  return map;
+}
 export async function renderMarkdown(
   markdown: string,
   { allowRemoteImages = false }: MarkdownRenderOptions = {}
 ): Promise<string> {
-  const html = addTaskListClasses(await markedParser.parse(promoteStandaloneMermaid(markdown)));
+  const html = addTaskListClasses(
+    await markedParser.parse(promoteStandaloneMermaid(markdown)),
+    getTaskLineMap(markdown)
+  );
   const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a",
@@ -59,6 +198,7 @@ export async function renderMarkdown(
       "code",
       "del",
       "details",
+      "div",
       "em",
       "h1",
       "h2",
@@ -73,6 +213,7 @@ export async function renderMarkdown(
       "ol",
       "p",
       "pre",
+      "span",
       "strong",
       "summary",
       "table",
@@ -87,6 +228,13 @@ export async function renderMarkdown(
       "alt",
       "checked",
       "class",
+      "data-block",
+      "data-callout",
+      "data-fold",
+      "data-heading",
+      "data-line",
+      "data-math",
+      "data-wikilink",
       "disabled",
       "href",
       "rel",
@@ -274,11 +422,28 @@ function markImageSourceBlocked(image: Element): void {
   image.setAttribute("title", "Image source blocked by mdview");
 }
 
-function addTaskListClasses(html: string): string {
+function addTaskListClasses(html: string, lineMap?: number[]): string {
+  let idx = 0;
   return html.replaceAll(
     /<li>(<input (?:checked="" )?disabled="" type="checkbox">)/g,
-    '<li class="task-list-item">$1'
+    (_match: string, input: string) => {
+      const line = lineMap?.[idx] ?? idx;
+      idx += 1;
+      const withLine = input.replace(
+        'type="checkbox"',
+        `type="checkbox" data-line="${line}"`
+      );
+      return `<li class="task-list-item">${withLine}`;
+    }
   );
+}
+
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function isMermaidStart(line: string): boolean {
