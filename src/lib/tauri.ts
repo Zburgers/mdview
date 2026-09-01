@@ -60,6 +60,10 @@ export function startupOpenFile(): Promise<string | null> {
   return invoke("startup_open_file");
 }
 
+export function copyAttachment(src: string, dest: string): Promise<string> {
+  return invoke("copy_attachment", { src, dest });
+}
+
 export function openMarkdownWindow(path: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const label = `mdview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
