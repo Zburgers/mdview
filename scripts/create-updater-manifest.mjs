@@ -13,6 +13,13 @@ const tag = required("--tag");
 const assetsDir = required("--assets-dir");
 const output = required("--output");
 
+if (!isSemver(version)) {
+  throw new Error(`Invalid version: ${version}`);
+}
+if (tag !== `v${version}`) {
+  throw new Error(`Tag ${tag} does not match version ${version}`);
+}
+
 const files = await listFiles(assetsDir);
 const platforms = {};
 
@@ -30,6 +37,10 @@ const manifest = {
   platforms
 };
 
+if (Object.keys(platforms).length === 0) {
+  throw new Error("No signed updater assets were found");
+}
+
 await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`);
 
 function required(name) {
@@ -38,6 +49,12 @@ function required(name) {
     throw new Error(`Missing ${name}`);
   }
   return value;
+}
+
+function isSemver(value) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  if (!match) return false;
+  return !(match[4] ?? "").split(".").some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0"));
 }
 
 async function listFiles(dir) {

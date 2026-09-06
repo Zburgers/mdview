@@ -5,7 +5,8 @@ export const defaultSettings: AppSettings = {
   viewMode: "reader",
   recentFiles: [],
   syncScroll: true,
-  trustedHtml: false
+  trustedHtml: false,
+  allowRemoteImages: false
 };
 
 export const emptyMarkdown =

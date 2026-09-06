@@ -1,26 +1,24 @@
 import DOMPurify from "dompurify";
-import { Marked, Renderer } from "marked";
+import { Marked } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
-
-const renderer = new Renderer();
-
-renderer.link = ({ href, title, tokens }) => {
-  const text = markedParser.parser(tokens);
-  const safeTitle = title ? ` title="${escapeAttribute(title)}"` : "";
-  return `<a href="${escapeAttribute(href)}"${safeTitle} rel="noreferrer">${text}</a>`;
-};
+const remoteResourcePattern = /(?:https?|ftps?|wss?):\/\/|(?:^|[\s("'=])\/\/[a-z0-9]/i;
+const allowedDataImagePattern =
+  /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i;
 
 const markedParser = new Marked({
   async: false,
   breaks: false,
-  gfm: true,
-  renderer
+  gfm: true
 });
 
 export type NormalizedMarkdown = {
   text: string;
   warning: string | null;
+};
+
+export type MarkdownRenderOptions = {
+  allowRemoteImages?: boolean;
 };
 
 export function isMarkdownLikePath(path: string): boolean {
@@ -48,9 +46,12 @@ export function getMarkdownFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
-export async function renderMarkdown(markdown: string): Promise<string> {
+export async function renderMarkdown(
+  markdown: string,
+  { allowRemoteImages = false }: MarkdownRenderOptions = {}
+): Promise<string> {
   const html = addTaskListClasses(await markedParser.parse(promoteStandaloneMermaid(markdown)));
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a",
       "blockquote",
@@ -94,9 +95,11 @@ export async function renderMarkdown(markdown: string): Promise<string> {
       "type"
     ],
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form"],
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "audio", "video", "source"],
     ADD_ATTR: ["target"]
   });
+
+  return applyPreviewElementPolicy(sanitized, allowRemoteImages);
 }
 
 export function promoteStandaloneMermaid(markdown: string): string {
@@ -131,12 +134,144 @@ export function promoteStandaloneMermaid(markdown: string): string {
   return output.join("\n");
 }
 
-export function sanitizeMermaidSvg(svg: string): string {
-  return DOMPurify.sanitize(svg, {
+export function containsRemoteResourceReference(value: string): boolean {
+  return remoteResourcePattern.test(value);
+}
+
+export function sanitizeMermaidSvg(
+  svg: string,
+  { allowRemoteImages = false }: MarkdownRenderOptions = {}
+): string {
+  const sanitized = DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
     ALLOW_DATA_ATTR: false,
-    FORBID_TAGS: ["script", "foreignObject"]
+    FORBID_TAGS: ["script", "foreignObject", "iframe", "object", "embed"]
   });
+  const document = new DOMParser().parseFromString(sanitized, "image/svg+xml");
+  const root = document.documentElement;
+
+  if (root.nodeName.toLowerCase() === "parsererror") {
+    return "";
+  }
+
+  root.querySelectorAll("image").forEach((image) => {
+    ["href", "xlink:href", "src"].forEach((attribute) => {
+      const originalValue = image.getAttribute(attribute);
+      if (!originalValue) {
+        return;
+      }
+
+      const value = originalValue.trim();
+      if (!isAllowedImageSource(value, allowRemoteImages, false)) {
+        image.removeAttribute(attribute);
+      } else if (value !== originalValue) {
+        image.setAttribute(attribute, value);
+      }
+    });
+  });
+
+  if (!allowRemoteImages) {
+    root.querySelectorAll("*").forEach((element) => {
+      if (element.nodeName.toLowerCase() !== "image") {
+        ["href", "xlink:href", "src"].forEach((attribute) => {
+          const value = element.getAttribute(attribute);
+          if (value && containsRemoteResourceReference(value)) {
+            element.removeAttribute(attribute);
+          }
+        });
+      }
+
+      const style = element.getAttribute("style");
+      if (style && containsRemoteResourceReference(style)) {
+        element.removeAttribute("style");
+      }
+    });
+
+    root.querySelectorAll("style").forEach((style) => {
+      if (containsRemoteResourceReference(style.textContent ?? "")) {
+        style.remove();
+      }
+    });
+  }
+
+  return new XMLSerializer().serializeToString(root);
+}
+
+function applyPreviewElementPolicy(html: string, allowRemoteImages: boolean): string {
+  const document = new DOMParser().parseFromString(html, "text/html");
+
+  document.querySelectorAll("a[href]").forEach((anchor) => {
+    anchor.setAttribute("rel", "noreferrer");
+  });
+
+  document.querySelectorAll("input").forEach((input) => {
+    const isDisabledCheckbox =
+      input.getAttribute("type")?.toLowerCase() === "checkbox" && input.hasAttribute("disabled");
+    if (!isDisabledCheckbox) {
+      input.remove();
+    }
+  });
+
+  document.querySelectorAll("img[src]").forEach((image) => {
+    const originalSrc = image.getAttribute("src");
+    if (!originalSrc) {
+      return;
+    }
+
+    const src = originalSrc.trim();
+    if (!src) {
+      markImageSourceBlocked(image);
+      return;
+    }
+
+    if (src !== originalSrc) {
+      image.setAttribute("src", src);
+    }
+
+    if (src.startsWith("//")) {
+      if (allowRemoteImages) {
+        image.setAttribute("src", `https:${src}`);
+      } else {
+        markImageSourceBlocked(image);
+      }
+      return;
+    }
+
+    if (!isAllowedImageSource(src, allowRemoteImages, true)) {
+      markImageSourceBlocked(image);
+    }
+  });
+
+  return document.body.innerHTML;
+}
+
+function isAllowedImageSource(
+  src: string,
+  allowRemoteImages: boolean,
+  allowRelative: boolean
+): boolean {
+  if (!src) {
+    return false;
+  }
+
+  try {
+    const url = new URL(src);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return allowRemoteImages;
+    }
+    if (url.protocol === "data:") {
+      return allowedDataImagePattern.test(src);
+    }
+    return url.protocol === "blob:";
+  } catch {
+    return allowRelative;
+  }
+}
+
+function markImageSourceBlocked(image: Element): void {
+  image.removeAttribute("src");
+  image.classList.add("blocked-image-source");
+  image.setAttribute("title", "Image source blocked by mdview");
 }
 
 function addTaskListClasses(html: string): string {
@@ -144,14 +279,6 @@ function addTaskListClasses(html: string): string {
     /<li>(<input (?:checked="" )?disabled="" type="checkbox">)/g,
     '<li class="task-list-item">$1'
   );
-}
-
-function escapeAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }
 
 function isMermaidStart(line: string): boolean {

@@ -8,16 +8,10 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Publish or update the GitHub Release for the package.json version"
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
-  group: release-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: mdview-release-${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 permissions:
   contents: read
@@ -25,10 +19,11 @@ permissions:
 jobs:
   validate:
     name: Validate
-    if: "!startsWith(github.ref, 'refs/tags/v')"
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -51,7 +46,21 @@ jobs:
             librsvg2-dev \
             patchelf
       - run: pnpm install --frozen-lockfile
+      - name: Validate release version sources
+        run: node scripts/validate-release-version.mjs
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+      - name: Validate tagged release version
+        run: node scripts/validate-release-version.mjs --tag "${GITHUB_REF_NAME}"
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Validate immutable release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | awk '{print $1}')"
+          test -n "${tag_sha}"
+          test "${tag_sha}" = "${GITHUB_SHA}"
       - run: pnpm test
+      - run: node --test tests/release-integrity.test.mjs
       - run: pnpm typecheck
       - run: pnpm build
       - run: cargo fmt --check
@@ -63,10 +72,10 @@ jobs:
 
   bundle:
     name: Bundle ${{ matrix.platform }}
+    needs: validate
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
+      github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +92,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -143,15 +154,14 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: bundle
-    if: >-
-      startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v'))
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -160,11 +170,9 @@ jobs:
         shell: bash
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            tag="v${version}"
-          fi
+          tag="${GITHUB_REF_NAME}"
+          test "${tag}" = "v${version}"
+          grep -q "^## \[${version}\]$" CHANGELOG.md
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
@@ -180,10 +188,7 @@ jobs:
             ' CHANGELOG.md
           } > "$notes_file"
 
-          if ! grep -q '[^[:space:]]' "$notes_file"; then
-            echo "# mdview ${tag}" > "$notes_file"
-            echo "Release ${tag}." >> "$notes_file"
-          fi
+          test "$(wc -l < "$notes_file")" -gt 2
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -198,6 +203,24 @@ jobs:
             --repo "${{ github.repository }}" \
             --assets-dir release-assets \
             --output latest.json
+      - name: Validate generated updater manifest
+        run: node scripts/validate-release-version.mjs --tag "${{ steps.release.outputs.tag }}" --latest latest.json
+      - name: Refuse to mutate a release from another commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | awk '{print $1}')"
+          test "${tag_sha}" = "${GITHUB_SHA}"
+
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
+          if [[ -n "${release_json}" ]]; then
+            target_commitish="$(jq -r '.target_commitish // empty' <<<"${release_json}")"
+            if [[ -n "${target_commitish}" && "${target_commitish}" != "${GITHUB_SHA}" ]]; then
+              echo "Existing release ${GITHUB_REF_NAME} points at ${target_commitish}, not ${GITHUB_SHA}." >&2
+              exit 1
+            fi
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}

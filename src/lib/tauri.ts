@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -47,6 +48,14 @@ export function saveSettings(settings: AppSettings): Promise<void> {
   return invoke("save_settings", { settings });
 }
 
+export async function getNativeAppVersion(): Promise<string> {
+  const version = await getVersion();
+  if (!isValidVersion(version)) {
+    throw new Error(`Installed application reports an invalid version: ${version}`);
+  }
+  return version;
+}
+
 export function startupOpenFile(): Promise<string | null> {
   return invoke("startup_open_file");
 }
@@ -71,14 +80,101 @@ export function openMarkdownWindow(path: string): Promise<void> {
 }
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
-  const update = await check();
+  let update: Awaited<ReturnType<typeof check>>;
+  try {
+    update = await check();
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Could not check for updates: ${detail}`);
+  }
+  const currentVersion = await getNativeAppVersion();
 
   if (!update) {
-    return { status: "current" };
+    return { status: "current", currentVersion };
   }
 
-  await update.downloadAndInstall();
-  await relaunch();
+  if (!isValidVersion(update.version)) {
+    throw new Error(`Update metadata contains an invalid version: ${update.version}`);
+  }
+
+  if (compareVersions(update.version, currentVersion) <= 0) {
+    return { status: "current", currentVersion };
+  }
+
+  try {
+    await update.downloadAndInstall();
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Could not install mdview ${update.version}: ${detail}`);
+  }
+
+  try {
+    await relaunch();
+  } catch (cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Update ${update.version} installed, but mdview could not restart: ${detail}`);
+  }
 
   return { status: "installed", version: update.version };
+}
+
+type Semver = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
+};
+
+export function isValidVersion(version: string): boolean {
+  return parseVersion(version) !== null;
+}
+
+export function compareVersions(left: string, right: string): number {
+  const leftVersion = parseVersion(left);
+  const rightVersion = parseVersion(right);
+  if (!leftVersion || !rightVersion) {
+    throw new Error("Cannot compare invalid semantic versions");
+  }
+
+  for (const key of ["major", "minor", "patch"] as const) {
+    if (leftVersion[key] !== rightVersion[key]) {
+      return leftVersion[key] > rightVersion[key] ? 1 : -1;
+    }
+  }
+
+  if (leftVersion.prerelease.length === 0 && rightVersion.prerelease.length > 0) {
+    return 1;
+  }
+  if (leftVersion.prerelease.length > 0 && rightVersion.prerelease.length === 0) {
+    return -1;
+  }
+
+  for (let index = 0; index < Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length); index += 1) {
+    const leftPart = leftVersion.prerelease[index];
+    const rightPart = rightVersion.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumeric = /^\d+$/.test(leftPart);
+    const rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) return Number(leftPart) > Number(rightPart) ? 1 : -1;
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return leftPart > rightPart ? 1 : -1;
+  }
+  return 0;
+}
+
+function parseVersion(version: string): Semver | null {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+  if (!match) return null;
+  const prerelease = match[4]?.split(".") ?? [];
+  if (prerelease.some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0"))) {
+    return null;
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease
+  };
 }

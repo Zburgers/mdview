@@ -4,10 +4,12 @@ import App from "../../../src/App";
 import { defaultSettings } from "../../../src/lib/defaults";
 import {
   checkForUpdates,
+  getNativeAppVersion,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
   readMarkdownFile,
+  saveSettings,
   startupOpenFile,
   writeMarkdownFile
 } from "../../../src/lib/tauri";
@@ -21,6 +23,9 @@ const destroyMock = vi.fn(() => Promise.resolve());
 const minimizeMock = vi.fn(() => Promise.resolve());
 const onCloseRequestedMock = vi.fn();
 const startDraggingMock = vi.fn(() => Promise.resolve());
+const startResizeDraggingMock = vi.fn(() => Promise.resolve());
+const isMaximizedMock = vi.fn(() => Promise.resolve(false));
+const isFullscreenMock = vi.fn(() => Promise.resolve(false));
 const toggleMaximizeMock = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -36,6 +41,9 @@ vi.mock("@tauri-apps/api/window", () => ({
     destroy: destroyMock,
     minimize: minimizeMock,
     startDragging: startDraggingMock,
+    startResizeDragging: startResizeDraggingMock,
+    isMaximized: isMaximizedMock,
+    isFullscreen: isFullscreenMock,
     toggleMaximize: toggleMaximizeMock,
     onCloseRequested: onCloseRequestedMock
   }))
@@ -58,6 +66,7 @@ vi.mock("../../../src/lib/tauri", () => ({
   startupOpenFile: vi.fn(),
   writeMarkdownFile: vi.fn(),
   checkForUpdates: vi.fn(),
+  getNativeAppVersion: vi.fn(() => Promise.resolve("1.2.4")),
   openMarkdownWindow: vi.fn()
 }));
 
@@ -88,17 +97,41 @@ describe("App desktop layout", () => {
     vi.mocked(writeMarkdownFile).mockResolvedValue("/tmp/example.md");
     vi.mocked(checkForUpdates).mockResolvedValue({ status: "current", currentVersion: "1.2.2" });
     vi.mocked(openMarkdownWindow).mockResolvedValue(undefined);
+    vi.mocked(saveSettings).mockClear();
     closeMock.mockClear();
     onCloseRequestedMock.mockClear();
     onCloseRequestedMock.mockImplementation(() => Promise.resolve(() => undefined));
     destroyMock.mockClear();
     minimizeMock.mockClear();
     startDraggingMock.mockClear();
+    startResizeDraggingMock.mockClear();
+    isMaximizedMock.mockClear();
+    isFullscreenMock.mockClear();
     toggleMaximizeMock.mockClear();
     eventMocks.listeners.clear();
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: matchMediaMock
+    });
+  });
+
+  it("waits for saved settings before writing preferences", async () => {
+    let resolveSettings!: (settings: typeof defaultSettings) => void;
+    vi.mocked(loadSettings).mockReturnValue(
+      new Promise((resolve) => {
+        resolveSettings = resolve;
+      })
+    );
+
+    render(<App />);
+
+    expect(saveSettings).not.toHaveBeenCalled();
+
+    const loaded = { ...defaultSettings, theme: "dark" as const, allowRemoteImages: true };
+    resolveSettings(loaded);
+
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(loaded);
     });
   });
 
@@ -155,6 +188,34 @@ describe("App desktop layout", () => {
     expect(toggleMaximizeMock).toHaveBeenCalledTimes(1);
     expect(closeMock).toHaveBeenCalledTimes(1);
     expect(destroyMock).not.toHaveBeenCalled();
+  });
+
+  it("uses manual titlebar dragging and native maximize on double click", async () => {
+    render(<App />);
+    const dragRegion = await screen.findByTestId("window-drag-region");
+
+    fireEvent.pointerDown(dragRegion, { button: 2 });
+    fireEvent.pointerDown(dragRegion, { button: 0, detail: 2 });
+    fireEvent.doubleClick(dragRegion);
+
+    expect(startDraggingMock).not.toHaveBeenCalled();
+    expect(toggleMaximizeMock).toHaveBeenCalledTimes(1);
+    expect(dragRegion).not.toHaveAttribute("data-tauri-drag-region");
+  });
+
+  it("starts native resize from every edge and corner", async () => {
+    render(<App />);
+    const handles = document.querySelectorAll<HTMLElement>("[data-resize-direction]");
+    expect(handles).toHaveLength(8);
+
+    for (const handle of handles) {
+      fireEvent.pointerDown(handle, { button: 0 });
+    }
+
+    await waitFor(() => expect(startResizeDraggingMock).toHaveBeenCalledTimes(8));
+    expect([...handles].map((handle) => handle.dataset.resizeDirection)).toEqual([
+      "North", "South", "East", "West", "NorthEast", "NorthWest", "SouthEast", "SouthWest"
+    ]);
   });
 
   it.each(["reader", "split", "source"] as const)(
@@ -248,12 +309,12 @@ describe("App desktop layout", () => {
   it("checks for updates from settings and reports the current version", async () => {
     vi.mocked(checkForUpdates).mockResolvedValue({
       status: "current",
-      currentVersion: "1.2.3"
+      currentVersion: "1.2.4"
     });
 
     render(<App />);
 
-    fireEvent.click(await screen.findByTitle("Settings and app info, mdview 1.2.3"));
+    fireEvent.click(await screen.findByTitle("Settings and app info, mdview 1.2.4"));
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
 
     expect(checkForUpdates).toHaveBeenCalledTimes(1);

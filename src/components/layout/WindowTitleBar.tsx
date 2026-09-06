@@ -1,5 +1,6 @@
 import { WindowControls } from "../window/WindowControls";
 import { WindowDragRegion } from "../window/WindowDragRegion";
+import { WindowResizeHandles } from "../window/WindowResizeHandles";
 
 type WindowTitleBarProps = {
   fileName: string;
@@ -11,6 +12,7 @@ export function WindowTitleBar({ fileName, dirty }: WindowTitleBarProps) {
 
   return (
     <header className="window-titlebar">
+      <WindowResizeHandles />
       <WindowDragRegion>
         <div className="window-brand">mdview</div>
         <div className="window-file-title" data-testid="window-file-title" title={displayName}>
