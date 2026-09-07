@@ -52,10 +52,13 @@ Adopt **scripted local guards plus agent policy documentation**:
 
 - Enforce ADR directory structure and commit atomicity with `scripts/adr_guard.sh`.
 - Require push through `scripts/push.sh`.
-- Require releases through `./release.sh`, with installer building and publishing
-  handled by GitHub Actions after the version tag is pushed.
+- Require manual releases through `./release.sh`, with installer building and
+  publishing handled by GitHub Actions after the version tag is pushed. A merged
+  same-repository `X.Y.Z` release branch may use the equivalent guarded automation
+  in `.github/workflows/release-on-merge.yml`.
 - Require per-ADR folder layout (`docs/adr/NNNN-slug/adr.md` + `assets/`).
-- Require an explicit maintainer confirmation step before push/release.
+- Require explicit maintainer confirmation through the merged release pull request
+  or the manual release invocation before the version commit and tag are pushed.
 
 ## Rationale
 
@@ -69,7 +72,7 @@ automation behavior is aligned in every chat.
 
 - Better traceability from architectural intent to release actions.
 - Cleaner commit history through ADR/code commit separation.
-- Consistent release procedure through `./release.sh`.
+- Consistent release procedure through the guarded workflow or `./release.sh`.
 
 ### Negative
 

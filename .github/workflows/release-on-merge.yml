@@ -1,0 +1,88 @@
+name: Release Merged Version Branch
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: mdview-auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve release branch
+        id: release
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: |
+          if [[ "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=${HEAD_REF}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${HEAD_REF}" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Merged branch ${HEAD_REF} is not a version branch; skipping release."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.release.outputs.should_release == 'true'
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: steps.release.outputs.should_release == 'true'
+        with:
+          node-version: 22
+      - name: Prepare version commit
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        shell: bash
+        run: |
+          git fetch origin main --tags
+          if [[ "$(git rev-parse origin/main)" != "${MERGE_SHA}" ]]; then
+            echo "main moved after the release branch was merged; rerun this release after reviewing the new main tip." >&2
+            exit 1
+          fi
+          node scripts/bump-version.mjs --version "${VERSION}"
+      - name: Create version commit and immutable tag
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          if git ls-remote --exit-code origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Release tag ${TAG} already exists." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Version ${VERSION} is already prepared on the merged commit."
+          else
+            git commit -m "release: v${VERSION}"
+          fi
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push --atomic origin HEAD:main "${TAG}"
+      - name: Dispatch native release build
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: gh workflow run release-build.yml --repo "${GITHUB_REPOSITORY}" --ref "${TAG}"

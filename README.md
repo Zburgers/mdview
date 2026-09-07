@@ -211,17 +211,20 @@ which first builds `.deb` and `.rpm`, then falls back to a patched AppDir plus
 manual `appimagetool` packaging when `linuxdeploy` rejects the generated
 desktop entry.
 
-Branch and pull-request runs upload CI artifacts for validation. Version tags
-matching `v*` publish the installer assets to a GitHub Release automatically.
+Branch and pull-request runs validate the app. A same-repository release branch
+named `X.Y.Z`, such as `1.2.5`, is released when its pull request is merged into
+`main`: GitHub Actions updates the version sources, creates the matching `vX.Y.Z`
+tag, and dispatches the native bundle and publication workflow. Ordinary feature
+branches do not publish releases.
 
-Release mdview from a clean, committed tree:
+For a manual release or recovery, use a clean, committed tree:
 
 ```bash
 ./release.sh --version v1.2.3
 ```
 
-The tag push triggers native CI builds and attaches the installers to the GitHub
-Release for normal user download.
+The script validates all application version sources and pushes an annotated tag;
+the tag workflow then builds and attaches the installers to the GitHub Release.
 
 ## Legacy Python GTK App
 

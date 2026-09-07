@@ -27,7 +27,7 @@ directory.
    - commit ADR changes separately
    - commit implementation changes separately
    - do not mix ADR + code changes in one commit
-4. For releases, run `./release.sh` only after ADR confirmation and clean git state.
+4. For manual releases, run `./release.sh` only after ADR confirmation and clean git state. A merged same-repository `X.Y.Z` release branch uses the guarded GitHub Actions release workflow.
 
 ## Creating A New ADR
 
@@ -43,8 +43,9 @@ directory.
 
 - `scripts/adr_guard.sh` enforces ADR presence and atomic ADR commits.
 - `scripts/push.sh` runs ADR checks before `git push`.
-- `release.sh` verifies release metadata and pushes the release tag; GitHub
-  Actions builds and publishes installer assets.
+- `release.sh` verifies release metadata and pushes the release tag for manual
+  releases; `.github/workflows/release-on-merge.yml` performs the same handoff
+  automatically for merged `X.Y.Z` release branches.
 
 ## Required Directory Layout
 

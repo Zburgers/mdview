@@ -36,6 +36,37 @@ test("release tag resolver accepts lightweight and annotated tags", async () => 
   await assert.rejects(runResolver(resolver, ""), /does not resolve to a commit/);
 });
 
+test("version bump updates every release source", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "mdview-version-"));
+  await mkdir(path.join(temp, "src-tauri"));
+  await writeFile(path.join(temp, "package.json"), '{"name":"mdview","version":"1.2.4"}\n');
+  await writeFile(path.join(temp, "src-tauri/tauri.conf.json"), '{"version":"1.2.4"}\n');
+  await writeFile(path.join(temp, "src-tauri/Cargo.toml"), '[package]\nversion = "1.2.4"\n');
+  await writeFile(
+    path.join(temp, "src-tauri/Cargo.lock"),
+    '[[package]]\nname = "mdview"\nversion = "1.2.4"\n'
+  );
+  await writeFile(
+    path.join(temp, "CHANGELOG.md"),
+    "# Changelog\n\nAll notable changes to this project will be documented in this file.\n"
+  );
+
+  await exec(process.execPath, [
+    "scripts/bump-version.mjs", "--version", "1.2.5", "--root", temp
+  ], { cwd: root });
+
+  assert.equal(JSON.parse(await readFile(path.join(temp, "package.json"), "utf8")).version, "1.2.5");
+  assert.equal(JSON.parse(await readFile(path.join(temp, "src-tauri/tauri.conf.json"), "utf8")).version, "1.2.5");
+  assert.match(await readFile(path.join(temp, "src-tauri/Cargo.toml"), "utf8"), /version = "1\.2\.5"/);
+  assert.match(await readFile(path.join(temp, "src-tauri/Cargo.lock"), "utf8"), /name = "mdview"\nversion = "1\.2\.5"/);
+  assert.match(await readFile(path.join(temp, "CHANGELOG.md"), "utf8"), /## \[1\.2\.5\]/);
+
+  await assert.rejects(
+    exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.4", "--root", temp], { cwd: root }),
+    /Cannot release 1\.2\.4 over current version 1\.2\.5/
+  );
+});
+
 test("updater manifest requires matching tag and signed assets", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "mdview-release-"));
   await mkdir(path.join(temp, "assets"));
@@ -74,6 +105,17 @@ test("release workflow validates before bundling and publishes tags only", async
   assert.equal((workflow.match(/node scripts\/resolve-release-tag\.mjs/g) ?? []).length, 2);
   assert.match(workflow, /cancel-in-progress: \$\{\{ !startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.doesNotMatch(workflow, /publish_release/);
+});
+
+test("merged version branches prepare and dispatch a tagged release", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/release-on-merge.yml"), "utf8");
+  assert.match(workflow, /types: \[closed\]/);
+  assert.match(workflow, /github\.event\.pull_request\.merged == true/);
+  assert.ok(workflow.includes('if [[ "${HEAD_REF}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]'));
+  assert.match(workflow, /node scripts\/bump-version\.mjs --version/);
+  assert.match(workflow, /git push --atomic origin HEAD:main "\$\{TAG\}"/);
+  assert.match(workflow, /gh workflow run release-build\.yml .*--ref "\$\{TAG\}"/);
+  assert.match(workflow, /actions: write/);
 });
 
 function runResolver(resolver, input) {

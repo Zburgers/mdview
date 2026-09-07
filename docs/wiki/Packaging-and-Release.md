@@ -30,14 +30,21 @@ pnpm tauri build --bundles nsis
 pnpm tauri build --bundles app,dmg
 ```
 
-Release command:
+Automatic release:
+
+Merge a same-repository branch named `X.Y.Z` into `main`, for example
+`1.2.5`. GitHub Actions updates the application version sources, creates the
+matching `vX.Y.Z` tag, and dispatches the native release build.
+
+Manual release or recovery command:
 
 ```bash
 ./release.sh --version v1.0.3
 ```
 
-The release script creates and pushes the annotated tag only. The CI release
-workflow builds and attaches the native installers to GitHub.
+The release script creates and pushes the annotated tag after validating the
+version sources. The CI release workflow builds and attaches the native
+installers to GitHub.
 
 Windows installers use the embedded WebView2 bootstrapper. File associations are
 declared for Markdown and plain text documents in `src-tauri/tauri.conf.json`.
