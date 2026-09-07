@@ -56,8 +56,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | awk '{print $1}')"
-          test -n "${tag_sha}"
+          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" "refs/tags/${GITHUB_REF_NAME}^{}" | node scripts/resolve-release-tag.mjs)"
           test "${tag_sha}" = "${GITHUB_SHA}"
       - run: pnpm test
       - run: node --test tests/release-integrity.test.mjs
@@ -210,7 +209,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}^{}" | awk '{print $1}')"
+          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" "refs/tags/${GITHUB_REF_NAME}^{}" | node scripts/resolve-release-tag.mjs)"
           test "${tag_sha}" = "${GITHUB_SHA}"
 
           release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"

@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -19,6 +20,20 @@ test("release version gate rejects a mismatched tag", async () => {
     exec(process.execPath, ["scripts/validate-release-version.mjs", "--tag", "v1.2.3"], { cwd: root }),
     /does not match version/
   );
+});
+
+test("release tag resolver accepts lightweight and annotated tags", async () => {
+  const resolver = path.join(root, "scripts/resolve-release-tag.mjs");
+  const lightweight = await runResolver(resolver, "abc123\trefs/tags/v1.2.5\n");
+  assert.equal(lightweight.stdout.trim(), "abc123");
+
+  const annotated = await runResolver(
+    resolver,
+    "tag456\trefs/tags/v1.2.5\ntag456\trefs/tags/v1.2.5^{}\n"
+  );
+  assert.equal(annotated.stdout.trim(), "tag456");
+
+  await assert.rejects(runResolver(resolver, ""), /does not resolve to a commit/);
 });
 
 test("updater manifest requires matching tag and signed assets", async () => {
@@ -55,6 +70,29 @@ test("release workflow validates before bundling and publishes tags only", async
   assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?needs: validate/);
   assert.match(workflow, /publish-release:[\s\S]*?if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.match(workflow, /Refuse to mutate a release from another commit/);
+  assert.match(workflow, /refs\/tags\/\$\{GITHUB_REF_NAME\}" "refs\/tags\/\$\{GITHUB_REF_NAME\}\^\{\}" \| node scripts\/resolve-release-tag\.mjs/);
+  assert.equal((workflow.match(/node scripts\/resolve-release-tag\.mjs/g) ?? []).length, 2);
   assert.match(workflow, /cancel-in-progress: \$\{\{ !startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.doesNotMatch(workflow, /publish_release/);
 });
+
+function runResolver(resolver, input) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [resolver], { cwd: root });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(stderr);
+      Object.assign(error, { code, stdout, stderr });
+      reject(error);
+    });
+    child.stdin.end(input);
+  });
+}
