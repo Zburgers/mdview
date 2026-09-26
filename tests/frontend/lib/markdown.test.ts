@@ -35,6 +35,92 @@ describe("markdown helpers", () => {
     expect(html).not.toContain("<script");
   });
 
+  it("maps rendered task checkboxes past task-like fenced code", async () => {
+    const html = await renderMarkdown("```md\n- [ ] example\n```\n\n- [ ] real task");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = document.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(checkboxes).toHaveLength(1);
+    expect(checkboxes[0].getAttribute("data-line")).toBe("4");
+  });
+
+  it("skips standalone indented code and keeps nested task line mappings", async () => {
+    const indentedCode = await renderMarkdown("    - [ ] example\n\n- [ ] real task");
+    const codeDocument = new DOMParser().parseFromString(indentedCode, "text/html");
+    const codeCheckboxes = codeDocument.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(codeCheckboxes).toHaveLength(1);
+    expect(codeCheckboxes[0].getAttribute("data-line")).toBe("2");
+
+    const nestedList = await renderMarkdown("- [ ] parent\n    - [ ] nested\n- [ ] next");
+    const nestedDocument = new DOMParser().parseFromString(nestedList, "text/html");
+    const nestedCheckboxes = Array.from(
+      nestedDocument.querySelectorAll('.task-list-item input[type="checkbox"]')
+    );
+
+    expect(nestedCheckboxes.map((checkbox) => checkbox.getAttribute("data-line"))).toEqual([
+      "0",
+      "1",
+      "2"
+    ]);
+
+    const nestedCode = await renderMarkdown(
+      "- parent\n    ```md\n    - [ ] example\n    ```\n- [ ] real task"
+    );
+    const nestedCodeDocument = new DOMParser().parseFromString(nestedCode, "text/html");
+    const nestedCodeCheckboxes = nestedCodeDocument.querySelectorAll(
+      '.task-list-item input[type="checkbox"]'
+    );
+
+    expect(nestedCodeCheckboxes).toHaveLength(1);
+    expect(nestedCodeCheckboxes[0].getAttribute("data-line")).toBe("4");
+  });
+
+  it("parses wikilink targets, aliases, headings, and block references", async () => {
+    const html = await renderMarkdown(
+      "[[Page]] [[Page|Alias]] [[Page#Heading]] [[Page^block]] [[Page#Heading^block|Heading alias]]"
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const links = Array.from(document.querySelectorAll("a.wikilink"));
+
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Page",
+      "Alias",
+      "Page",
+      "Page",
+      "Heading alias"
+    ]);
+    expect(links[2].getAttribute("data-heading")).toBe("Heading");
+    expect(links[3].getAttribute("data-block")).toBe("block");
+    expect(links[4].getAttribute("data-heading")).toBe("Heading");
+    expect(links[4].getAttribute("data-block")).toBe("block");
+  });
+
+  it("renders inline and block math through KaTeX", async () => {
+    const html = await renderMarkdown("Inline $x^2$\n\n$$\ny = x^2\n$$");
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector(".math-inline .katex")).not.toBeNull();
+    expect(document.querySelector(".math-block .katex")).not.toBeNull();
+  });
+
+  it("contains malformed and untrusted math input", async () => {
+    const html = await renderMarkdown(
+      "$\\notacommand$ and $\\href{javascript:alert(1)}{click}$"
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector(".math-inline .katex")?.textContent).toContain("\\notacommand");
+    expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it("renders single source newlines as visible paragraph breaks", async () => {
+    const html = await renderMarkdown("First line\nSecond line");
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector("p")?.innerHTML).toBe("First line<br>Second line");
+  });
+
   it("keeps the preview allowlist narrow for raw HTML", async () => {
     const html = await renderMarkdown(
       "<details><summary>Allowed</summary><p>Text</p></details>" +

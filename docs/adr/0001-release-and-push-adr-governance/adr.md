@@ -36,7 +36,7 @@ execution through `./release.sh`.
 - Pros: Simple, no scripts, low maintenance.
 - Cons: Easy to bypass, inconsistent across contributors and agents.
 
-### Option 2: Scripted guards + documented agent policy (selected)
+### Option 2: Scripted guards + documented agent policy (proposed)
 
 - Pros: Enforceable checks, repeatable behavior, clear failure messages.
 - Cons: Adds process overhead and wrapper scripts.
@@ -46,12 +46,12 @@ execution through `./release.sh`.
 - Pros: Centralized control.
 - Cons: Feedback comes late, local push/release flow remains inconsistent.
 
-## Decision
+## Proposed Direction (Not Adopted)
 
-Adopt **scripted local guards plus agent policy documentation**:
+If adopted, use **scripted local guards plus agent policy documentation**:
 
-- Enforce ADR directory structure and commit atomicity with `scripts/adr_guard.sh`.
-- Require push through `scripts/push.sh`.
+- Add an ADR guard for directory structure and commit atomicity.
+- Add a push wrapper that runs the ADR guard before `git push`.
 - Require manual releases through `./release.sh`, with installer building and
   publishing handled by GitHub Actions after the version tag is pushed. A merged
   same-repository `X.Y.Z` release branch may use the equivalent guarded automation
@@ -60,11 +60,12 @@ Adopt **scripted local guards plus agent policy documentation**:
 - Require explicit maintainer confirmation through the merged release pull request
   or the manual release invocation before the version commit and tag are pushed.
 
+The local ADR guard and push wrapper described above do not currently exist.
+
 ## Rationale
 
-This balances enforcement and developer ergonomics. Local scripts give fast
-feedback before remote operations. Agent instructions in `AGENT.md` ensure
-automation behavior is aligned in every chat.
+The proposal would balance enforcement and developer ergonomics. Local scripts
+could give fast feedback before remote operations, alongside agent guidance.
 
 ## Consequences
 
@@ -72,24 +73,23 @@ automation behavior is aligned in every chat.
 
 - Better traceability from architectural intent to release actions.
 - Cleaner commit history through ADR/code commit separation.
-- Consistent release procedure through the guarded workflow or `./release.sh`.
+- Consistent release procedure through the release workflow or `./release.sh`.
 
 ### Negative
 
 - Extra workflow steps before push and release.
-- Need to maintain guard scripts as process evolves.
+- Need to implement and maintain guard scripts as process evolves.
 
 ### Risks
 
 - Overly strict checks may block legitimate edge workflows.
 - Mitigation: keep failure messages actionable; tune rules as needed.
 
-## Implementation Notes
+## Implementation Status
 
-- `scripts/adr_guard.sh` validates ADR structure and commit atomicity.
-- `scripts/push.sh` runs ADR guard before `git push`.
+- `scripts/adr_guard.sh` and `scripts/push.sh` have not been implemented.
 - `release.sh` validates release metadata before version tagging.
-- Agents must follow `AGENT.md` release and push protocol.
+- Repository release guidance is maintained in `AGENTS.md` and the release docs.
 
 ## Related Decisions
 
@@ -99,4 +99,4 @@ automation behavior is aligned in every chat.
 
 - `docs/adr/README.md`
 - `release.sh`
-- `AGENT.md`
+- `AGENTS.md`

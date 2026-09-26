@@ -19,7 +19,11 @@ directory.
 | --- | --- | --- | --- |
 | [0001](0001-release-and-push-adr-governance/adr.md) | Enforce ADR Governance for Push and Release Workflows | Proposed | 2026-04-10 |
 
-## Required Workflow For Pushes And Releases
+## Proposed Workflow For Pushes And Releases
+
+ADR-0001 is still Proposed. This workflow is not adopted or enforced by the
+repository. Current manual and automated release paths are described in
+[`../wiki/Packaging-and-Release.md`](../wiki/Packaging-and-Release.md).
 
 1. Draft or update an ADR in `docs/adr/` before any remote push or release.
 2. Present the ADR to the maintainer and get explicit confirmation.
@@ -27,7 +31,7 @@ directory.
    - commit ADR changes separately
    - commit implementation changes separately
    - do not mix ADR + code changes in one commit
-4. For manual releases, run `./release.sh` only after ADR confirmation and clean git state. A merged same-repository `X.Y.Z` release branch uses the guarded GitHub Actions release workflow.
+4. If adopted, manual releases would use `./release.sh` after ADR review and a clean git state. A merged same-repository `X.Y.Z` release branch uses the release workflow.
 
 ## Creating A New ADR
 
@@ -41,11 +45,10 @@ directory.
 
 ## Automation
 
-- `scripts/adr_guard.sh` enforces ADR presence and atomic ADR commits.
-- `scripts/push.sh` runs ADR checks before `git push`.
-- `release.sh` verifies release metadata and pushes the release tag for manual
-  releases; `.github/workflows/release-on-merge.yml` performs the same handoff
-  automatically for merged `X.Y.Z` release branches.
+- No local ADR guard or push wrapper is implemented.
+- `release.sh` validates release metadata and pushes the release tag for manual
+  releases; `.github/workflows/release-on-merge.yml` handles merged `X.Y.Z`
+  release branches.
 
 ## Required Directory Layout
 

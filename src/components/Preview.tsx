@@ -5,6 +5,7 @@ import { ask, message } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { highlightText } from "../lib/highlight";
 import { classifyHref } from "../lib/links";
+import { resolveMarkdownImagePath } from "../lib/tauri";
 import {
   containsRemoteResourceReference,
   renderMarkdown,
@@ -19,10 +20,36 @@ type PreviewProps = {
   allowRemoteImages?: boolean;
   onToggleTask?: (line: number) => void;
   onOpenWikilink?: (target: string, heading?: string) => void;
+  scrollToHeading?: string;
+  onHeadingNavigationComplete?: () => void;
 };
 
-export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteImages = false, onToggleTask, onOpenWikilink }: PreviewProps) {
+function normalizeHeading(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function slugifyHeading(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-|-$/g, "");
+}
+
+export function Preview({
+  markdown,
+  filePath,
+  theme,
+  searchQuery,
+  allowRemoteImages = false,
+  onToggleTask,
+  onOpenWikilink,
+  scrollToHeading,
+  onHeadingNavigationComplete
+}: PreviewProps) {
   const [html, setHtml] = useState("");
+  const [renderedMarkdown, setRenderedMarkdown] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -33,12 +60,14 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
       .then((nextHtml) => {
         if (!cancelled) {
           setHtml(nextHtml);
+          setRenderedMarkdown(markdown);
           setError(null);
         }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
           setError(cause instanceof Error ? cause.message : "Markdown rendering failed");
+          setRenderedMarkdown(markdown);
         }
       });
 
@@ -48,21 +77,64 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
   }, [allowRemoteImages, markdown]);
 
   useEffect(() => {
+    if (!scrollToHeading || renderedMarkdown !== markdown) return;
+    if (error) {
+      onHeadingNavigationComplete?.();
+      return;
+    }
+
+    const root = containerRef.current;
+    if (!root) return;
+    let headingText = scrollToHeading;
+    try {
+      headingText = decodeURIComponent(headingText);
+    } catch {
+      // Keep literal heading text when it is not percent-encoded.
+    }
+    const target = normalizeHeading(headingText);
+    const targetSlug = slugifyHeading(headingText);
+    const heading = Array.from(root.querySelectorAll("h1, h2, h3, h4, h5, h6")).find((element) => {
+      const text = element.textContent ?? "";
+      return normalizeHeading(text) === target || slugifyHeading(text) === targetSlug;
+    });
+
+    heading?.scrollIntoView({ block: "start" });
+    onHeadingNavigationComplete?.();
+  }, [error, html, markdown, onHeadingNavigationComplete, renderedMarkdown, scrollToHeading]);
+
+  useEffect(() => {
     const root = containerRef.current;
     if (!root) {
       return;
     }
+    let cancelled = false;
 
     root.querySelectorAll("img[src]").forEach((image) => {
       const element = image as HTMLImageElement;
       const src = element.getAttribute("src");
-      if (!src || !filePath || /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("/")) {
+      if (!src || !filePath || /^(https?:|data:|blob:|asset:)/i.test(src)) {
         return;
       }
 
-      const base = filePath.split(/[\\/]/).slice(0, -1).join("/");
-      const normalized = `${base}/${src}`;
-      element.src = convertFileSrc(normalized);
+      let relativePath: string;
+      try {
+        relativePath = decodeURIComponent(src);
+      } catch {
+        element.removeAttribute("src");
+        return;
+      }
+
+      void resolveMarkdownImagePath(filePath, relativePath)
+        .then((resolvedPath) => {
+          if (!cancelled && root.contains(element) && element.getAttribute("src") === src) {
+            element.src = convertFileSrc(resolvedPath);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && root.contains(element) && element.getAttribute("src") === src) {
+            element.removeAttribute("src");
+          }
+        });
     });
 
     root.querySelectorAll("pre code.language-mermaid").forEach((node, index) => {
@@ -111,6 +183,7 @@ export function Preview({ markdown, filePath, theme, searchQuery, allowRemoteIma
     highlightText(root, searchQuery);
 
     return () => {
+      cancelled = true;
       root.removeEventListener("change", onChange);
     };
   }, [allowRemoteImages, html, filePath, theme, searchQuery, onToggleTask]);

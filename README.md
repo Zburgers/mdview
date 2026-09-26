@@ -207,9 +207,8 @@ first launch, or removing quarantine attributes during local testing.
 - macOS: `.app`, `.dmg`
 
 The Linux build path uses [`scripts/build-linux-bundles.sh`](scripts/build-linux-bundles.sh),
-which first builds `.deb` and `.rpm`, then falls back to a patched AppDir plus
-manual `appimagetool` packaging when `linuxdeploy` rejects the generated
-desktop entry.
+which invokes Tauri to build AppImage, `.deb`, and `.rpm` bundles, then checks
+that all three expected artifacts were created.
 
 Branch and pull-request runs validate the app. A same-repository release branch
 named `X.Y.Z`, such as `1.2.5`, is released when its pull request is merged into

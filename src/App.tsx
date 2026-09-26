@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, RefreshCw, Sparkles, X } from "lucide-react";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
 import { Preview } from "./components/Preview";
@@ -11,6 +11,7 @@ import {
   checkForUpdates,
   getNativeAppVersion,
   copyAttachment,
+  pathsAlias,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
@@ -18,7 +19,8 @@ import {
   saveMarkdownDialog,
   saveSettings,
   startupOpenFile,
-  writeMarkdownFile
+  writeMarkdownFile,
+  writeAttachmentBytes
 } from "./lib/tauri";
 import {
   classifyAttachment,
@@ -47,7 +49,38 @@ const createInitialTab = (id = "tab-1"): MarkdownTab => ({
 type PendingAction = {
   label: string;
   run: () => Promise<void>;
+  saveTabId?: string;
+  saveAllTabs?: boolean;
 };
+
+type PendingHeadingNavigation = { tabId: string; heading: string };
+
+function markdownSavePath(path: string): string {
+  return isMarkdownLikePath(path) ? path : `${path}.md`;
+}
+
+function normalizeFilePath(path: string): string {
+  const normalized = path.replaceAll("\\", "/");
+  const prefix = normalized.startsWith("//") ? "//" : normalized.startsWith("/") ? "/" : "";
+  const resolved: string[] = [];
+
+  for (const part of normalized.slice(prefix.length).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === ".." && resolved.length > 0 && resolved.at(-1) !== "..") {
+      resolved.pop();
+    } else if (part !== ".." || !prefix) {
+      resolved.push(part);
+    }
+  }
+
+  const result = `${prefix}${resolved.join("/")}`;
+  return /^[a-z]:\//i.test(result) || result.startsWith("//") ? result.toLowerCase() : result;
+}
+
+function isMissingPathError(cause: unknown): boolean {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return /no such file|not found|does not exist|cannot find|could not find/i.test(message);
+}
 
 export default function App() {
   const [tabs, setTabs] = useState<MarkdownTab[]>(() => [createInitialTab()]);
@@ -63,18 +96,31 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
   const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
+  const [pendingHeadingNavigation, setPendingHeadingNavigation] = useState<PendingHeadingNavigation | null>(null);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pendingActionRef = useRef<PendingAction | null>(null);
   const dirtyRef = useRef(false);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   const nextTabIdRef = useRef(2);
+  const openPathRequestRef = useRef(0);
   const tabDragStartYRef = useRef<number | null>(null);
 
   const documentState = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? createInitialTab(),
     [activeTabId, tabs]
   );
+  const hasUnsavedTabs = tabs.some((tab) => tab.dirty);
+  const activeHeadingNavigation = pendingHeadingNavigation?.tabId === documentState.id
+    ? pendingHeadingNavigation
+    : null;
+  const completeHeadingNavigation = useCallback(() => {
+    if (activeHeadingNavigation) {
+      setPendingHeadingNavigation((current) => current === activeHeadingNavigation ? null : current);
+    }
+  }, [activeHeadingNavigation]);
 
   const actualTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
   const previewTheme = actualTheme === "light" || actualTheme === "paper" ? "light" : "dark";
@@ -109,6 +155,12 @@ export default function App() {
 
     saveSettings(settings).catch(() => undefined);
   }, [settings, settingsLoaded]);
+
+  useEffect(() => {
+    if (pendingHeadingNavigation && pendingHeadingNavigation.tabId !== documentState.id) {
+      setPendingHeadingNavigation(null);
+    }
+  }, [documentState.id, pendingHeadingNavigation]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -193,7 +245,7 @@ export default function App() {
       event.preventDefault();
       await queuePendingAction("close this window", async () => {
         await destroyWindow();
-      });
+      }, undefined, true);
     });
 
     return () => {
@@ -203,7 +255,7 @@ export default function App() {
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!documentState.dirty) {
+      if (!hasUnsavedTabs) {
         return;
       }
 
@@ -213,7 +265,7 @@ export default function App() {
 
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [documentState.dirty]);
+  }, [hasUnsavedTabs]);
 
   const emptyState = useMemo(() => !hasDocument, [hasDocument]);
 
@@ -284,7 +336,7 @@ export default function App() {
     return !tab.isOpen && !tab.dirty && tab.path === null && tab.markdown.length === 0;
   }
 
-  function openDocumentInTab(response: ReadFileResponse) {
+  function openDocumentInTab(response: ReadFileResponse, preferredTabId?: string): string {
     const normalized = normalizeMarkdownText(response.contents);
     const nextDocument: Omit<MarkdownTab, "id"> = {
       isOpen: true,
@@ -295,21 +347,34 @@ export default function App() {
       dirty: false
     };
 
+    const currentExisting = tabsRef.current.find((tab) => tab.id === preferredTabId) ?? tabsRef.current.find(
+      (tab) => tab.path !== null && normalizeFilePath(tab.path) === normalizeFilePath(response.path)
+    );
+    const currentActiveTab = tabsRef.current.find((tab) => tab.id === activeTabId);
+    const tabId = currentExisting?.id ?? (
+      currentActiveTab && isEmptyCleanStartupTab(currentActiveTab) ? currentActiveTab.id : nextTabId()
+    );
+
     setTabs((currentTabs) => {
-      const existing = currentTabs.find((tab) => tab.path === response.path);
+      const existing = currentTabs.find((tab) => tab.id === preferredTabId) ?? currentTabs.find(
+        (tab) => tab.path !== null && normalizeFilePath(tab.path) === normalizeFilePath(response.path)
+      );
       if (existing) {
         setActiveTabId(existing.id);
+        if (existing.dirty) {
+          return currentTabs;
+        }
         return currentTabs.map((tab) => (tab.id === existing.id ? { ...nextDocument, id: existing.id } : tab));
       }
 
       const activeTab = currentTabs.find((tab) => tab.id === activeTabId);
       if (activeTab && isEmptyCleanStartupTab(activeTab)) {
+        setActiveTabId(activeTab.id);
         return currentTabs.map((tab) => (tab.id === activeTabId ? { ...nextDocument, id: activeTabId } : tab));
       }
 
-      const id = nextTabId();
-      setActiveTabId(id);
-      return [...currentTabs, { ...nextDocument, id }];
+      setActiveTabId(tabId);
+      return [...currentTabs, { ...nextDocument, id: tabId }];
     });
 
     setSettings((current) => ({
@@ -318,20 +383,71 @@ export default function App() {
     }));
     setSearchQuery("");
     setStatus(null);
+    return tabId;
   }
 
-  async function openPath(path: string) {
+  async function openPath(path: string, heading?: string): Promise<"opened" | "missing" | "failed" | "stale"> {
+    const requestId = ++openPathRequestRef.current;
+    setPendingHeadingNavigation(null);
     if (!isMarkdownLikePath(path)) {
       setStatus("Only Markdown or text-like files can be opened.");
-      return;
+      return "failed";
     }
 
     try {
+      const existingBeforeRead = await findOpenTabForPath(path);
+      if (requestId !== openPathRequestRef.current) return "stale";
+      if (existingBeforeRead?.dirty) {
+        focusOpenTab(existingBeforeRead, path);
+        if (heading) setPendingHeadingNavigation({ tabId: existingBeforeRead.id, heading });
+        return "opened";
+      }
+
       const response = await readMarkdownFile(path);
-      openDocumentInTab(response);
+      if (requestId !== openPathRequestRef.current) return "stale";
+      const existingAfterRead = await findOpenTabForPath(response.path);
+      if (requestId !== openPathRequestRef.current) return "stale";
+      if (existingAfterRead?.dirty) {
+        focusOpenTab(existingAfterRead, response.path);
+        if (heading) setPendingHeadingNavigation({ tabId: existingAfterRead.id, heading });
+        return "opened";
+      }
+      const tabId = openDocumentInTab(response, existingAfterRead?.id ?? existingBeforeRead?.id);
+      if (heading && requestId === openPathRequestRef.current) {
+        setPendingHeadingNavigation({ tabId, heading });
+      }
+      return "opened";
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : "Could not open file.");
+      if (requestId === openPathRequestRef.current) {
+        if (isMissingPathError(cause)) return "missing";
+        setStatus(cause instanceof Error ? cause.message : "Could not open file.");
+        return "failed";
+      }
+      return "stale";
     }
+  }
+
+  async function findOpenTabForPath(path: string): Promise<MarkdownTab | undefined> {
+    for (const candidate of tabsRef.current) {
+      if (!candidate.path) continue;
+      if (normalizeFilePath(candidate.path) === normalizeFilePath(path)) {
+        return tabsRef.current.find((tab) => tab.id === candidate.id);
+      }
+      if (await pathsAlias(path, [candidate.path])) {
+        return tabsRef.current.find((tab) => tab.id === candidate.id && tab.path !== null);
+      }
+    }
+    return undefined;
+  }
+
+  function focusOpenTab(tab: MarkdownTab, recentPath: string) {
+    setActiveTabId(tab.id);
+    setSettings((current) => ({
+      ...current,
+      recentFiles: [recentPath, ...current.recentFiles.filter((file) => file !== recentPath)].slice(0, 10)
+    }));
+    setSearchQuery("");
+    setStatus(null);
   }
 
   async function openExternalPath(path: string) {
@@ -365,8 +481,13 @@ export default function App() {
     updateSettings({ viewMode: "source" });
   }
 
-  async function queuePendingAction(label: string, run: () => Promise<void>) {
-    pendingActionRef.current = { label, run };
+  async function queuePendingAction(
+    label: string,
+    run: () => Promise<void>,
+    saveTabId?: string,
+    saveAllTabs = false
+  ) {
+    pendingActionRef.current = { label, run, saveTabId, saveAllTabs };
     setPendingActionLabel(label);
     setIsResolvingPendingAction(false);
   }
@@ -409,52 +530,73 @@ export default function App() {
     }
   }
 
-  async function handleSave(): Promise<boolean> {
-    try {
-      if (documentState.path) {
-        const savedPath = await writeMarkdownFile(documentState.path, documentState.markdown);
-        updateActiveDocument((current) => ({
-          ...current,
-          path: savedPath,
-          name: getMarkdownFileName(savedPath),
-          dirty: false
-        }));
-        setStatus("Saved.");
-        return true;
-      }
+  async function isPathOwnedByAnotherTab(path: string, tabId: string): Promise<boolean> {
+    const target = markdownSavePath(path);
+    const otherPaths = tabsRef.current
+      .filter((tab) => tab.id !== tabId && tab.path !== null)
+      .map((tab) => tab.path as string);
+    return pathsAlias(target, otherPaths);
+  }
 
-      return await handleSaveAs();
+  function updateTabAfterSave(tabId: string, savedPath: string, contents: string): boolean {
+    const hasNewerEdits = tabsRef.current.find((tab) => tab.id === tabId)?.markdown !== contents;
+    setTabs((currentTabs) =>
+      currentTabs.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              path: savedPath,
+              name: getMarkdownFileName(savedPath),
+              dirty: tab.markdown !== contents
+            }
+          : tab
+      )
+    );
+    return !hasNewerEdits;
+  }
+
+  async function saveTab(tabId: string, forceSaveAs = false): Promise<boolean> {
+    const target = tabs.find((tab) => tab.id === tabId);
+    if (!target) {
+      return false;
+    }
+
+    let path = target.path;
+    if (!path || forceSaveAs) {
+      path = await saveMarkdownDialog(target.path);
+      if (!path) {
+        setStatus("Save canceled.");
+        return false;
+      }
+    }
+
+    try {
+      if (await isPathOwnedByAnotherTab(path, target.id)) {
+        setStatus("That file is already open in another tab.");
+        return false;
+      }
+      const savedPath = await writeMarkdownFile(path, target.markdown);
+      const savedCurrentContents = updateTabAfterSave(target.id, savedPath, target.markdown);
+      if (!target.path || forceSaveAs) {
+        setSettings((current) => ({
+          ...current,
+          recentFiles: [savedPath, ...current.recentFiles.filter((file) => file !== savedPath)].slice(0, 10)
+        }));
+      }
+      setStatus(savedCurrentContents ? "Saved." : "Saved, but newer edits remain unsaved.");
+      return savedCurrentContents;
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not save file.");
       return false;
     }
   }
 
-  async function handleSaveAs(): Promise<boolean> {
-    const selected = await saveMarkdownDialog(documentState.path);
-    if (!selected) {
-      setStatus("Save canceled.");
-      return false;
-    }
+  async function handleSave(): Promise<boolean> {
+    return saveTab(documentState.id);
+  }
 
-    try {
-      const savedPath = await writeMarkdownFile(selected, documentState.markdown);
-      updateActiveDocument((current) => ({
-        ...current,
-        path: savedPath,
-        name: getMarkdownFileName(savedPath),
-        dirty: false
-      }));
-      setSettings((prev) => ({
-        ...prev,
-        recentFiles: [savedPath, ...prev.recentFiles.filter((f) => f !== savedPath)].slice(0, 10)
-      }));
-      setStatus("Saved.");
-      return true;
-    } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : "Could not save file.");
-      return false;
-    }
+  async function handleSaveAs(): Promise<boolean> {
+    return saveTab(documentState.id, true);
   }
 
   function handlePrint() {
@@ -493,15 +635,18 @@ export default function App() {
     updateActiveDocument((current) => ({ ...current, markdown: nextMarkdown, dirty: true }));
     if (documentState.path) {
       try {
-        await writeMarkdownFile(documentState.path, nextMarkdown);
-        updateActiveDocument((current) => ({ ...current, dirty: false }));
+        const savedPath = await writeMarkdownFile(documentState.path, nextMarkdown);
+        const savedCurrentContents = updateTabAfterSave(documentState.id, savedPath, nextMarkdown);
+        if (!savedCurrentContents) {
+          setStatus("Saved, but newer edits remain unsaved.");
+        }
       } catch (cause) {
         setStatus(cause instanceof Error ? cause.message : "Could not save checkbox state.");
       }
     }
   }
 
-  function handleOpenWikilink(target: string, heading?: string) {
+  async function handleOpenWikilink(target: string, heading?: string) {
     if (!target) return;
     // Try to find in recentFiles by basename match
     const candidates = settings.recentFiles.filter((f) => {
@@ -509,8 +654,8 @@ export default function App() {
       return base.toLowerCase() === target.toLowerCase() || f.toLowerCase().endsWith(`/${target.toLowerCase()}.md`);
     });
     if (candidates.length > 0) {
-      void openPath(candidates[0]);
-      return;
+      const outcome = await openPath(candidates[0], heading);
+      if (outcome !== "missing") return;
     }
     // Try relative to current file directory
     if (documentState.path) {
@@ -521,9 +666,8 @@ export default function App() {
         `${target}.md`,
       ];
       for (const g of guesses) {
-        // we optimistically try to open; if fails, status will show
-        void openPath(g);
-        return;
+        const outcome = isMarkdownLikePath(g) ? await openPath(g, heading) : "missing";
+        if (outcome !== "missing") return;
       }
     }
     setStatus(`Linked note not found: ${target}${heading ? `#${heading}` : ""}`);
@@ -576,7 +720,7 @@ export default function App() {
         if (alreadyInside) {
           rel = relativePosix(documentState.path, dropped);
         } else {
-          const copied = await copyAttachment(dropped, dest);
+          const copied = await copyAttachment(dropped, documentState.path, dest);
           rel = relativePosix(documentState.path, copied);
         }
         insertAtCursor(markdownForAttachment(kind, rel, sanitized));
@@ -584,6 +728,19 @@ export default function App() {
         setStatus(cause instanceof Error ? cause.message : `Could not attach ${sanitized}`);
       }
     }
+  }
+
+  async function writeFileAttachment(file: File, fallbackName: string) {
+    if (!documentState.path) return;
+    const sanitized = sanitizeAttachmentName(file.name || fallbackName);
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    if (buffer.length > 20 * 1024 * 1024) {
+      setStatus(`File too large (20 MB limit): ${sanitized}`);
+      return;
+    }
+    const saved = await writeAttachmentBytes(documentState.path, sanitized, buffer);
+    const rel = relativePosix(documentState.path, saved);
+    insertAtCursor(markdownForAttachment(classifyAttachment(sanitized), rel, sanitized));
   }
 
   async function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -599,36 +756,10 @@ export default function App() {
       return;
     }
     event.preventDefault();
-    const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
     for (const file of imageFiles) {
       const sanitized = sanitizeAttachmentName(file.name || `pasted-${Date.now()}.png`);
-      const dest = `${baseDir}/assets/${sanitized}`;
       try {
-        // Use plugin-fs writeFile for blob, falling back to copy if needed
-        // For clipboard Files, we write the blob bytes via Tauri fs plugin
-        const { writeFile } = await import("@tauri-apps/plugin-fs");
-        const buffer = new Uint8Array(await file.arrayBuffer());
-        if (buffer.length > 20 * 1024 * 1024) {
-          setStatus(`File too large (20 MB limit): ${sanitized}`);
-          continue;
-        }
-        // Ensure collision handling similar to copyAttachment
-        let finalDest = dest;
-        // Try copyAttachment path first via writing temp then copy? Simpler: write directly
-        // we mimic copyAttachment collision by checking existence
-        const { exists } = await import("@tauri-apps/plugin-fs");
-        if (await exists(finalDest)) {
-          const dot = sanitized.lastIndexOf(".");
-          const stem = dot >= 0 ? sanitized.slice(0, dot) : sanitized;
-          const ext = dot >= 0 ? sanitized.slice(dot) : "";
-          let idx = 1;
-          while (await exists(`${baseDir}/assets/${stem} (${idx})${ext}`)) idx += 1;
-          finalDest = `${baseDir}/assets/${stem} (${idx})${ext}`;
-        }
-        await writeFile(finalDest, buffer);
-        const rel = relativePosix(documentState.path, finalDest);
-        const kind = classifyAttachment(sanitized);
-        insertAtCursor(markdownForAttachment(kind, rel, sanitized));
+        await writeFileAttachment(file, sanitized);
       } catch (cause) {
         setStatus(cause instanceof Error ? cause.message : `Could not paste ${sanitized}`);
       }
@@ -657,27 +788,9 @@ export default function App() {
           setStatus("Save the file first, then drop files.");
           continue;
         }
-        const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
         const sanitized = sanitizeAttachmentName(f.name || `dropped-${Date.now()}`);
         try {
-          const { writeFile, exists } = await import("@tauri-apps/plugin-fs");
-          const buffer = new Uint8Array(await f.arrayBuffer());
-          if (buffer.length > 20 * 1024 * 1024) {
-            setStatus(`File too large: ${sanitized}`);
-            continue;
-          }
-          let finalDest = `${baseDir}/assets/${sanitized}`;
-          if (await exists(finalDest)) {
-            const dot = sanitized.lastIndexOf(".");
-            const stem = dot >= 0 ? sanitized.slice(0, dot) : sanitized;
-            const ext = dot >= 0 ? sanitized.slice(dot) : "";
-            let idx = 1;
-            while (await exists(`${baseDir}/assets/${stem} (${idx})${ext}`)) idx += 1;
-            finalDest = `${baseDir}/assets/${stem} (${idx})${ext}`;
-          }
-          await writeFile(finalDest, buffer);
-          const rel = relativePosix(documentState.path, finalDest);
-          insertAtCursor(markdownForAttachment(classifyAttachment(sanitized), rel, sanitized));
+          await writeFileAttachment(f, sanitized);
         } catch (cause) {
           setStatus(cause instanceof Error ? cause.message : `Could not drop ${sanitized}`);
         }
@@ -704,7 +817,20 @@ export default function App() {
 
   async function handleSaveBeforeContinuing() {
     setIsResolvingPendingAction(true);
-    const saved = await handleSave();
+    const pending = pendingActionRef.current;
+    const saveTabId = pending?.saveTabId;
+    let saved = true;
+    if (pending?.saveAllTabs) {
+      const dirtyTabIds = tabsRef.current.filter((tab) => tab.dirty).map((tab) => tab.id);
+      for (const tabId of dirtyTabIds) {
+        if (!(await saveTab(tabId))) {
+          saved = false;
+          break;
+        }
+      }
+    } else {
+      saved = saveTabId ? await saveTab(saveTabId) : await handleSave();
+    }
     if (saved) {
       await runPendingAction();
     } else {
@@ -750,7 +876,7 @@ export default function App() {
 
   async function requestCloseTab(tab: MarkdownTab) {
     if (tab.dirty) {
-      await queuePendingAction(`close ${tab.name}`, async () => closeTab(tab.id));
+      await queuePendingAction(`close ${tab.name}`, async () => closeTab(tab.id), tab.id);
       return;
     }
 
@@ -891,7 +1017,9 @@ export default function App() {
               <RecentFiles
                 files={settings.recentFiles}
                 onOpen={(path) => {
-                  void guardDocumentTransition(`open ${getMarkdownFileName(path)}`, () => openPath(path));
+                  void guardDocumentTransition(`open ${getMarkdownFileName(path)}`, async () => {
+                    await openPath(path);
+                  });
                 }}
                 onClear={() => updateSettings({ recentFiles: [] })}
               />
@@ -955,6 +1083,8 @@ export default function App() {
               allowRemoteImages={settings.allowRemoteImages}
               onToggleTask={handleToggleTask}
               onOpenWikilink={handleOpenWikilink}
+              scrollToHeading={activeHeadingNavigation?.heading}
+              onHeadingNavigationComplete={completeHeadingNavigation}
             />
           </div>
         )}
@@ -1091,7 +1221,9 @@ export default function App() {
           >
             <h2 id="unsaved-changes-title">Save changes?</h2>
             <p id="unsaved-changes-description">
-              Your current file has unsaved changes. Save them before you {pendingActionLabel}?
+              {pendingActionRef.current?.saveAllTabs
+                ? "Your open tabs have unsaved changes. Save them before you close this window?"
+                : `Your current file has unsaved changes. Save them before you ${pendingActionLabel}?`}
             </p>
             <div className="confirm-actions">
               <button onClick={clearPendingAction}>Cancel</button>

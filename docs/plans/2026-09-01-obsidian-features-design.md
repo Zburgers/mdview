@@ -36,7 +36,7 @@ Bring the most-loved Obsidian affordances into mdview's local-first Tauri app wi
 ### 2.1 Stack stays the same
 - `marked` (isolated `Marked` instance) → `DOMPurify` → `mermaid.render` → `sanitizeMermaidSvg` → `dangerouslySetInnerHTML`.
 - CSP unchanged: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: ...`.
-- New dependencies (if needed): `katex` for math (small, no CDN), no new Tauri plugins beyond `plugin-fs` helpers already present.
+- Use local `katex` for math (no CDN); attachment file I/O goes through Tauri commands, so no filesystem plugin is needed.
 
 ### 2.2 New modules
 ```
@@ -123,7 +123,7 @@ Keep isolated `Marked` instance. Add three `marked.use()` extensions:
 
 1. **Callouts** — block tokenizer: `^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]([+-]?)\s*(.*)$` inside blockquote. Render to `<div class="callout callout-{type}" data-callout="{type}" data-fold="{+|-|}">` with title row and body.
 2. **Wikilinks** — inline tokenizer: `\[\[([^\]|#^]+)(?:\|([^\]]+))?(?:#([^\]|^]+))?(?:\^([^\]]+))?\]\]`. Render to `<a class="wikilink" data-wikilink="{target}" data-heading="{h?}" href="#wikilink-{slug}">{alias||target}</a>`.
-3. **Math** — inline `$…$` (single) and block `$$…$$`. Render via `katex.renderToString` to `<span class="katex-inline">` / `<div class="katex-block">` with error fallback as `<code>`. KaTeX does not inject script.
+3. **Math** — inline `$…$` (single) and block `$$…$$`. Render via `katex.renderToString` to `<span class="katex-inline">` / `<div class="katex-block">`; malformed input keeps KaTeX's visible error output (`throwOnError: false`). KaTeX does not inject script.
 
 All emitted HTML still passes through `DOMPurify.sanitize()` allowlist — add `class`, `data-wikilink`, `data-callout`, `data-line`, `data-task-index` to `ALLOWED_ATTR`.
 
@@ -191,7 +191,7 @@ Manual QA: run `pnpm tauri dev`, paste screenshot, drag png/pdf from Nautilus/Do
 
 ## 7. rollout
 
-- Behind no flag for 1.2.5 (small scope); keep KaTeX optional — if math block fails, render as code fallback.
+- Behind no flag for 1.2.5 (small scope); keep KaTeX optional — malformed math remains visible through KaTeX's error output.
 - Branch `1.2.5` already pushed. Design + research docs committed before implementation (this doc).
 - Next: invoke `writing-plans` skill to produce `docs/plans/...-implementation.md` with task breakdown.
 

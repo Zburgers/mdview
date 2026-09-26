@@ -20,11 +20,11 @@ export function classifyAttachment(name: string): AttachmentKind {
 
 export function relativePosix(fromFile: string, toFile: string): string {
   const fromDir = fromFile.split(/[\\/]/).slice(0, -1).join("/");
+  const normalizedTo = toFile.replaceAll("\\", "/");
   if (!fromDir) {
-    return toFile.split(/[\\/]/).pop() ?? toFile;
+    return normalizedTo;
   }
   const normalizedFrom = fromDir.replaceAll("\\", "/");
-  const normalizedTo = toFile.replaceAll("\\", "/");
   if (normalizedTo.startsWith(normalizedFrom + "/")) {
     return normalizedTo.slice(normalizedFrom.length + 1);
   }

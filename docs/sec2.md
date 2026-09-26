@@ -1,3 +1,9 @@
+# Legacy Review: Python GTK App Only
+
+> This historical review covers the retired Python GTK/WebKitGTK implementation;
+> it does not assess the current Tauri app. See the [Tauri Markdown rendering
+> security boundary](security/markdown-rendering-sandbox.md) for the active app.
+
 ## Evaluation Report: mdview with Mermaid Rendering
 
 ### Overview

@@ -1,4 +1,6 @@
 import DOMPurify from "dompurify";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { Marked } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
@@ -8,9 +10,18 @@ const allowedDataImagePattern =
 
 const markedParser = new Marked({
   async: false,
-  breaks: false,
+  breaks: true,
   gfm: true
 });
+
+type MathRenderContext = {
+  prefix: string;
+  nextIndex: number;
+  rendered: Map<string, string>;
+};
+
+let activeMathRenderContext: MathRenderContext | null = null;
+let nextMathRenderId = 0;
 
 // Obsidian-style callouts: > [!NOTE] Title
 markedParser.use({
@@ -59,13 +70,22 @@ markedParser.use({
         return idx >= 0 ? idx : undefined;
       },
       tokenizer(src: string) {
-        const rule = /^\[\[([^\]|#^]+)(?:\|([^\]]+))?(?:#([^\]|^]+))?(?:\^([^\]]+))?\]\]/;
+        const rule = /^\[\[([^\]]+)\]\]/;
         const match = rule.exec(src);
         if (!match) return undefined;
-        const target = match[1].trim();
-        const alias = match[2]?.trim() || target;
-        const heading = match[3]?.trim() || "";
-        const block = match[4]?.trim() || "";
+        const [linkTarget, aliasText] = match[1].split("|", 2);
+        const targetEnd = linkTarget.search(/[#^]/);
+        const target = (targetEnd < 0 ? linkTarget : linkTarget.slice(0, targetEnd)).trim();
+        if (!target) return undefined;
+
+        const fragment = targetEnd < 0 ? "" : linkTarget.slice(targetEnd);
+        const headingStart = fragment.startsWith("#") ? 1 : 0;
+        const blockStart = fragment.indexOf("^");
+        const heading = headingStart
+          ? fragment.slice(headingStart, blockStart < 0 ? undefined : blockStart).trim()
+          : "";
+        const block = blockStart < 0 ? "" : fragment.slice(blockStart + 1).trim();
+        const alias = aliasText?.trim() || target;
         return {
           type: "wikilink",
           raw: match[0],
@@ -106,7 +126,7 @@ markedParser.use({
       },
       renderer(token: unknown) {
         const t = token as { math: string };
-        return `<span class="math-inline" data-math="${escapeAttribute(t.math)}">${escapeAttribute(t.math)}</span>`;
+        return `<span class="math-inline" data-math="${escapeAttribute(t.math)}">${renderMathPlaceholder(t.math, false)}</span>`;
       },
     },
     {
@@ -128,7 +148,7 @@ markedParser.use({
       },
       renderer(token: unknown) {
         const t = token as { math: string };
-        return `<div class="math-block" data-math="${escapeAttribute(t.math)}"><code>${escapeAttribute(t.math)}</code></div>\n`;
+        return `<div class="math-block" data-math="${escapeAttribute(t.math)}">${renderMathPlaceholder(t.math, true)}</div>\n`;
       },
     },
   ],
@@ -172,12 +192,60 @@ export function getMarkdownFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
+// ponytail: tab-indented code can still confuse this heuristic; upgrade to full source-position parsing if it causes a real mismatch.
 export function getTaskLineMap(markdown: string): number[] {
   const lines = markdown.split("\n");
   const map: number[] = [];
+  const listIndents: number[] = [];
+  let fence: { marker: "`" | "~"; length: number; indent: number } | null = null;
+
   lines.forEach((line, idx) => {
-    if (/^\s*[-*+]\s+\[[ xX]\]\s+/.test(line)) {
+    const content = line.replace(/^(?: {0,3}>[\t ]?)+/, "");
+    const indent = content.length - content.trimStart().length;
+    const isNestedList = listIndents.some((parentIndent) => indent > parentIndent && indent < parentIndent + 6);
+    if (fence) {
+      const closingFence = /^( *)(`+|~+)[\t ]*$/.exec(content);
+      if (
+        closingFence &&
+        closingFence[2][0] === fence.marker &&
+        closingFence[2].length >= fence.length &&
+        closingFence[1].length >= fence.indent &&
+        closingFence[1].length <= fence.indent + 3
+      ) {
+        fence = null;
+      }
+      return;
+    }
+
+    const openingFence = /^( *)(`{3,}|~{3,})/.exec(content);
+    if (openingFence && (indent < 4 || isNestedList)) {
+      fence = {
+        marker: openingFence[2][0] === "`" ? "`" : "~",
+        length: openingFence[2].length,
+        indent: Number(openingFence[1].length)
+      };
+      return;
+    }
+
+    if (!content.trim()) {
+      return;
+    }
+
+    const listMarker = /^( *)(?:[-*+]|\d+[.)])\s+/.exec(content);
+    while (listIndents.length > 0 && indent <= listIndents[listIndents.length - 1]) {
+      listIndents.pop();
+    }
+
+    const isTask = /^\s*[-*+]\s+\[[ xX]\]\s+/.test(content);
+    const isMarkdownList = indent < 4 || isNestedList;
+    if (isTask && isMarkdownList) {
       map.push(idx);
+    }
+
+    if (listMarker && isMarkdownList) {
+      listIndents.push(indent);
+    } else if (indent === 0) {
+      listIndents.length = 0;
     }
   });
   return map;
@@ -186,10 +254,17 @@ export async function renderMarkdown(
   markdown: string,
   { allowRemoteImages = false }: MarkdownRenderOptions = {}
 ): Promise<string> {
-  const html = addTaskListClasses(
-    await markedParser.parse(promoteStandaloneMermaid(markdown)),
-    getTaskLineMap(markdown)
-  );
+  const mathRenderContext = createMathRenderContext(markdown);
+  const previousMathRenderContext = activeMathRenderContext;
+  activeMathRenderContext = mathRenderContext;
+  let parsedMarkdown: string | Promise<string>;
+  try {
+    parsedMarkdown = markedParser.parse(promoteStandaloneMermaid(markdown));
+  } finally {
+    activeMathRenderContext = previousMathRenderContext;
+  }
+
+  const html = addTaskListClasses(await parsedMarkdown, getTaskLineMap(markdown));
   const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a",
@@ -247,7 +322,43 @@ export async function renderMarkdown(
     ADD_ATTR: ["target"]
   });
 
-  return applyPreviewElementPolicy(sanitized, allowRemoteImages);
+  let rendered = sanitized;
+  for (const [placeholder, mathHtml] of mathRenderContext.rendered) {
+    rendered = rendered.replaceAll(placeholder, mathHtml);
+  }
+
+  return applyPreviewElementPolicy(rendered, allowRemoteImages);
+}
+
+function createMathRenderContext(markdown: string): MathRenderContext {
+  let prefix: string;
+  do {
+    prefix = `__MDVIEW_KATEX_${nextMathRenderId++}_`;
+  } while (markdown.includes(prefix));
+
+  return { prefix, nextIndex: 0, rendered: new Map() };
+}
+
+function renderMathPlaceholder(math: string, displayMode: boolean): string {
+  const context = activeMathRenderContext;
+  if (!context) {
+    return escapeAttribute(math);
+  }
+
+  const placeholder = `${context.prefix}${context.nextIndex++}__`;
+  const generatedHtml = katex.renderToString(math, {
+    displayMode,
+    output: "html",
+    throwOnError: false,
+    trust: false
+  });
+  const sanitizedHtml = DOMPurify.sanitize(generatedHtml, {
+    ALLOWED_TAGS: ["span"],
+    ALLOWED_ATTR: ["aria-hidden", "class", "style", "title"],
+    ALLOW_DATA_ATTR: false
+  });
+  context.rendered.set(placeholder, sanitizedHtml);
+  return placeholder;
 }
 
 export function promoteStandaloneMermaid(markdown: string): string {

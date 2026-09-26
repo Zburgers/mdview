@@ -98,7 +98,11 @@ test("updater manifest requires matching tag and signed assets", async () => {
 test("release workflow validates before bundling and publishes tags only", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-build.yml"), "utf8");
   assert.match(workflow, /node --test tests\/release-integrity\.test\.mjs/);
+  assert.match(workflow, /actions\/checkout@v4[\s\S]*?fetch-depth: 0/);
+  assert.match(workflow, /Require tagged release commit on main[\s\S]*?git merge-base --is-ancestor "\$\{GITHUB_SHA\}" origin\/main[\s\S]*?bundle:/);
   assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?needs: validate/);
+  assert.match(workflow, /bundle:[\s\S]*?if:\s*>-\s*\n\s*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.doesNotMatch(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /publish-release:[\s\S]*?if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.match(workflow, /Refuse to mutate a release from another commit/);
   assert.match(workflow, /refs\/tags\/\$\{GITHUB_REF_NAME\}" "refs\/tags\/\$\{GITHUB_REF_NAME\}\^\{\}" \| node scripts\/resolve-release-tag\.mjs/);

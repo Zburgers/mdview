@@ -21,6 +21,7 @@ describe("attachments", () => {
     expect(relativePosix("/a/b/c.md", "/a/b/c.md")).toBe("c.md");
     expect(relativePosix("C:\\Users\\Ada\\notes.md", "C:\\Users\\Ada\\assets\\img.png")).toBe("assets/img.png");
     expect(relativePosix("/a/b/c.md", "/other/path.png")).toBe("/other/path.png");
+    expect(relativePosix("notes.md", "assets\\photo.png")).toBe("assets/photo.png");
   });
 
   it("builds markdown strings for attachments", () => {
