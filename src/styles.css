@@ -1206,7 +1206,66 @@ select:focus-visible {
 
 .markdown-body .task-list-item input {
   margin-right: 0.5em;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
+
+.markdown-body .math-inline {
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: ui-monospace, monospace;
+  font-size: 0.92em;
+}
+
+.markdown-body .math-block {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--code-bg);
+  text-align: center;
+  overflow-x: auto;
+}
+
+.markdown-body .wikilink {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.markdown-body .wikilink:hover {
+  text-decoration-style: solid;
+}
+
+.callout {
+  margin: 16px 0;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-soft), transparent 20%);
+  overflow: hidden;
+}
+
+.callout-title {
+  padding: 10px 14px 6px;
+  font-weight: 700;
+  font-size: 0.95em;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent), transparent 86%);
+  border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 30%);
+}
+
+.callout-body {
+  padding: 12px 14px;
+}
+
+.callout-note { border-left-color: #0ea5e9; }
+.callout-tip { border-left-color: #10b981; }
+.callout-important { border-left-color: #8b5cf6; }
+.callout-warning { border-left-color: #f59e0b; }
+.callout-caution { border-left-color: #ef4444; }
 
 .markdown-body mark {
   border-radius: 4px;

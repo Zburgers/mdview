@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../../src/App";
 import { defaultSettings } from "../../../src/lib/defaults";
@@ -7,11 +7,14 @@ import {
   getNativeAppVersion,
   loadSettings,
   openMarkdownWindow,
+  pathsAlias,
   openMarkdownDialog,
   readMarkdownFile,
+  saveMarkdownDialog,
   saveSettings,
   startupOpenFile,
-  writeMarkdownFile
+  writeMarkdownFile,
+  writeAttachmentBytes
 } from "../../../src/lib/tauri";
 
 const eventMocks = vi.hoisted(() => ({
@@ -50,10 +53,22 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("../../../src/components/Preview", () => ({
-  Preview: ({ markdown }: { markdown: string }) => (
-    <article className="preview markdown-body" data-testid="preview">
-      {markdown}
-    </article>
+  Preview: ({ markdown, onOpenWikilink, onToggleTask }: {
+    markdown: string;
+    onOpenWikilink?: (target: string) => void;
+    onToggleTask?: (line: number) => void;
+  }) => (
+    <>
+      <article className="preview markdown-body" data-testid="preview">
+        {markdown}
+      </article>
+      {markdown.includes("[[Target]]") ? (
+        <button type="button" onClick={() => onOpenWikilink?.("Target")}>Open test wikilink</button>
+      ) : null}
+      {markdown.includes("1. [ ] ordered task") ? (
+        <button type="button" onClick={() => onToggleTask?.(0)}>Toggle test task</button>
+      ) : null}
+    </>
   )
 }));
 
@@ -65,6 +80,8 @@ vi.mock("../../../src/lib/tauri", () => ({
   saveSettings: vi.fn(() => Promise.resolve()),
   startupOpenFile: vi.fn(),
   writeMarkdownFile: vi.fn(),
+  pathsAlias: vi.fn(() => Promise.resolve(false)),
+  writeAttachmentBytes: vi.fn(),
   checkForUpdates: vi.fn(),
   getNativeAppVersion: vi.fn(() => Promise.resolve("1.2.4")),
   openMarkdownWindow: vi.fn()
@@ -79,6 +96,14 @@ const matchMediaMock = vi.fn(() => ({
 afterEach(() => {
   cleanup();
 });
+
+function makeOversizedFile(name: string, type: string) {
+  const file = new File([], name, { type });
+  const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
+  Object.defineProperty(file, "size", { value: 20 * 1024 * 1024 + 1 });
+  Object.defineProperty(file, "arrayBuffer", { value: arrayBuffer });
+  return { file, arrayBuffer };
+}
 
 describe("App desktop layout", () => {
   beforeEach(() => {
@@ -95,6 +120,12 @@ describe("App desktop layout", () => {
       lossy: false
     });
     vi.mocked(writeMarkdownFile).mockResolvedValue("/tmp/example.md");
+    vi.mocked(writeMarkdownFile).mockClear();
+    vi.mocked(readMarkdownFile).mockClear();
+    vi.mocked(pathsAlias).mockClear();
+    vi.mocked(pathsAlias).mockResolvedValue(false);
+    vi.mocked(writeAttachmentBytes).mockClear();
+    vi.mocked(writeAttachmentBytes).mockResolvedValue("/tmp/assets/photo.png");
     vi.mocked(checkForUpdates).mockResolvedValue({ status: "current", currentVersion: "1.2.2" });
     vi.mocked(openMarkdownWindow).mockResolvedValue(undefined);
     vi.mocked(saveSettings).mockClear();
@@ -251,6 +282,19 @@ describe("App desktop layout", () => {
     expect(screen.queryByRole("heading", { name: "Open Markdown File" })).not.toBeInTheDocument();
   });
 
+  it("toggles ordered-list tasks in the source", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.click(screen.getByTitle("Split"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    fireEvent.change(source, { target: { value: "1. [ ] ordered task" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Toggle test task" }));
+
+    await waitFor(() => expect(source).toHaveValue("1. [x] ordered task"));
+    expect(screen.getByRole("tab", { name: "Untitled unsaved" })).toBeInTheDocument();
+  });
+
   it("opens the startup file supplied by the desktop file association", async () => {
     vi.mocked(startupOpenFile).mockResolvedValue("/home/naki/notes/launch.md");
     vi.mocked(readMarkdownFile).mockResolvedValue({
@@ -306,6 +350,297 @@ describe("App desktop layout", () => {
     expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Draft");
   });
 
+  it("warns before unload when a background tab has unsaved changes", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValueOnce("/tmp/first.md").mockResolvedValueOnce("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({ path, contents: `# ${path}`, lossy: false }));
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "first.md" });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "second.md" });
+    fireEvent.click(screen.getByRole("tab", { name: "first.md" }));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# First edits" } });
+    fireEvent.click(screen.getByRole("tab", { name: "second.md" }));
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("tries wikilink path guesses in order until one opens", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
+      if (path === "/tmp/Target.md") throw new Error("Could not read file: No such file or directory (os error 2)");
+      return { path, contents: path === "/tmp/current.md" ? "[[Target]]" : "# Found target", lossy: false };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test wikilink" }));
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Markdown source")).toHaveValue("# Found target"));
+    expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
+      "/tmp/current.md",
+      "/tmp/Target.md",
+      "Target.md"
+    ]);
+  });
+
+  it("continues to local wikilink guesses when the recent-file match is missing", async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ ...defaultSettings, viewMode: "split", recentFiles: ["/recent/Target.md"] });
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
+      if (path === "/recent/Target.md") throw new Error("Could not read file: No such file or directory (os error 2)");
+      return { path, contents: path === "/tmp/current.md" ? "[[Target]]" : "# Local target", lossy: false };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test wikilink" }));
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Markdown source")).toHaveValue("# Local target"));
+    expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
+      "/tmp/current.md",
+      "/recent/Target.md",
+      "/tmp/Target.md"
+    ]);
+  });
+
+  it("stops wikilink fallback after a non-missing open failure", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
+      if (path === "/tmp/Target.md") throw new Error("Permission denied");
+      return { path, contents: "[[Target]]", lossy: false };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test wikilink" }));
+
+    expect(await screen.findByText("Permission denied")).toBeInTheDocument();
+    expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
+      "/tmp/current.md",
+      "/tmp/Target.md"
+    ]);
+  });
+
+  it("reopens a dirty file in its existing tab without replacing edits", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile)
+      .mockResolvedValueOnce({ path: "/tmp/example.md", contents: "# Original", lossy: false })
+      .mockResolvedValueOnce({ path: "/tmp/example.md", contents: "# On disk", lossy: false });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    fireEvent.change(source, { target: { value: "# My edits" } });
+    const readCount = vi.mocked(readMarkdownFile).mock.calls.length;
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+
+    await waitFor(() => expect(vi.mocked(readMarkdownFile).mock.calls.length).toBe(readCount));
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# My edits");
+    expect(screen.getAllByRole("tab", { name: "example.md unsaved" })).toHaveLength(1);
+  });
+
+  it("focuses a dirty tab when the same file is opened through a filesystem alias", async () => {
+    vi.mocked(openMarkdownDialog)
+      .mockResolvedValueOnce("/tmp/example.md")
+      .mockResolvedValueOnce("/tmp/aliases/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/tmp/example.md",
+      contents: "# Original",
+      lossy: false
+    });
+    vi.mocked(pathsAlias).mockResolvedValue(true);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    fireEvent.change(source, { target: { value: "# My edits" } });
+    const readCount = vi.mocked(readMarkdownFile).mock.calls.length;
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+
+    await waitFor(() => expect(pathsAlias).toHaveBeenCalledWith("/tmp/aliases/example.md", ["/tmp/example.md"]));
+    expect(vi.mocked(readMarkdownFile)).toHaveBeenCalledTimes(readCount);
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# My edits");
+    expect(screen.getAllByRole("tab", { name: "example.md unsaved" })).toHaveLength(1);
+  });
+
+  it("does not Save As over a path owned by another open tab", async () => {
+    vi.mocked(openMarkdownDialog)
+      .mockResolvedValueOnce("/tmp/first.md")
+      .mockResolvedValueOnce("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({
+      path,
+      contents: "# " + path,
+      lossy: false
+    }));
+    vi.mocked(saveMarkdownDialog).mockResolvedValue("/tmp/folder/../second.md");
+    vi.mocked(pathsAlias).mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "first.md" });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "second.md" });
+    fireEvent.click(screen.getByRole("tab", { name: "first.md" }));
+    fireEvent.click(screen.getByTitle("Save As"));
+
+    await waitFor(() => expect(saveMarkdownDialog).toHaveBeenCalled());
+    expect(await screen.findByText(/already open in another tab/i)).toBeInTheDocument();
+    expect(writeMarkdownFile).not.toHaveBeenCalled();
+  });
+
+  it("checks native path identity after applying the Markdown extension rule", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValueOnce("/tmp/first.md").mockResolvedValueOnce("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({ path, contents: "# File", lossy: false }));
+    vi.mocked(saveMarkdownDialog).mockResolvedValue("/tmp/other-name");
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "first.md" });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "second.md" });
+    fireEvent.click(screen.getByRole("tab", { name: "first.md" }));
+    fireEvent.click(screen.getByTitle("Save As"));
+
+    await waitFor(() => expect(pathsAlias).toHaveBeenCalledWith("/tmp/other-name.md", ["/tmp/second.md"]));
+  });
+
+  it("writes pasted image bytes through the constrained native attachment command", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    vi.mocked(writeAttachmentBytes).mockResolvedValue("/tmp/assets/pasted.png");
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const image = new File([new Uint8Array([1, 2, 3])], "pasted.png", { type: "image/png" });
+
+    fireEvent.paste(source, { clipboardData: { files: [image] } });
+
+    await waitFor(() => expect(writeAttachmentBytes).toHaveBeenCalledWith(
+      "/tmp/example.md",
+      "pasted.png",
+      expect.any(Uint8Array)
+    ));
+  });
+
+  it("rejects oversized pasted files before reading their bytes", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const { file, arrayBuffer } = makeOversizedFile("large.png", "image/png");
+
+    fireEvent.paste(source, { clipboardData: { files: [file] } });
+
+    expect(await screen.findByText("File too large (20 MB limit): large.png")).toBeInTheDocument();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(writeAttachmentBytes).not.toHaveBeenCalled();
+  });
+
+  it("writes pathless dropped file bytes through the constrained native attachment command", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    vi.mocked(writeAttachmentBytes).mockResolvedValue("/tmp/assets/report.pdf");
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const file = new File([new Uint8Array([4, 5, 6])], "report.pdf", { type: "application/pdf" });
+
+    fireEvent.drop(source, { dataTransfer: { files: [file] } });
+
+    await waitFor(() => expect(writeAttachmentBytes).toHaveBeenCalledWith(
+      "/tmp/example.md",
+      "report.pdf",
+      expect.any(Uint8Array)
+    ));
+  });
+
+  it("rejects oversized pathless drops before reading their bytes", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const { file, arrayBuffer } = makeOversizedFile("large.png", "image/png");
+
+    fireEvent.drop(source, { dataTransfer: { files: [file] } });
+
+    expect(await screen.findByText("File too large (20 MB limit): large.png")).toBeInTheDocument();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(writeAttachmentBytes).not.toHaveBeenCalled();
+  });
+
+  it("keeps edits dirty when they change while a save is pending", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({
+      path: "/tmp/example.md",
+      contents: "# Original",
+      lossy: false
+    });
+    let finishWrite!: (path: string) => void;
+    vi.mocked(writeMarkdownFile).mockReturnValue(
+      new Promise((resolve) => {
+        finishWrite = resolve;
+      })
+    );
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    fireEvent.change(source, { target: { value: "# Saved snapshot" } });
+    fireEvent.click(screen.getByTitle("Save"));
+    fireEvent.change(source, { target: { value: "# Newer edits" } });
+    finishWrite("/tmp/example.md");
+
+    await screen.findByText(/Saved/);
+    expect(screen.getByRole("tab", { name: "example.md unsaved" })).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("Markdown source")).toHaveValue("# Newer edits");
+  });
+
+  it("saves the inactive dirty tab before closing that tab", async () => {
+    vi.mocked(openMarkdownDialog)
+      .mockResolvedValueOnce("/tmp/first.md")
+      .mockResolvedValueOnce("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({
+      path,
+      contents: "# " + path,
+      lossy: false
+    }));
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "first.md" });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+    await screen.findByRole("tab", { name: "second.md" });
+    fireEvent.click(screen.getByRole("tab", { name: "first.md" }));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), {
+      target: { value: "# Edited first" }
+    });
+    await screen.findByRole("tab", { name: "first.md unsaved" });
+    fireEvent.click(screen.getByRole("tab", { name: "second.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close first.md" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Save changes?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(writeMarkdownFile).toHaveBeenCalledWith("/tmp/first.md", "# Edited first");
+    });
+    expect(screen.queryByRole("tab", { name: "first.md" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "second.md" })).toHaveAttribute("aria-selected", "true");
+  });
+
   it("checks for updates from settings and reports the current version", async () => {
     vi.mocked(checkForUpdates).mockResolvedValue({
       status: "current",
@@ -358,6 +693,34 @@ describe("App desktop layout", () => {
     expect(preventDefault).not.toHaveBeenCalled();
     expect(destroyMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog", { name: "Save changes?" })).not.toBeInTheDocument();
+  });
+
+  it("saves every dirty tab before closing the native window", async () => {
+    let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+    onCloseRequestedMock.mockImplementation((handler: typeof closeHandler) => {
+      closeHandler = handler;
+      return Promise.resolve(() => undefined);
+    });
+    vi.mocked(openMarkdownDialog).mockResolvedValueOnce("/tmp/first.md").mockResolvedValueOnce("/tmp/second.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({ path, contents: `# ${path}`, lossy: false }));
+    vi.mocked(writeMarkdownFile).mockImplementation(async (path) => path);
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# First edits" } });
+    fireEvent.click(screen.getByTitle("Open Markdown File"));
+    fireEvent.change(await screen.findByPlaceholderText("Markdown source"), { target: { value: "# Second edits" } });
+    expect(await screen.findByRole("tab", { name: "second.md unsaved" })).toBeInTheDocument();
+
+    const preventDefault = vi.fn();
+    await closeHandler?.({ preventDefault });
+    const dialog = await screen.findByRole("dialog", { name: "Save changes?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(writeMarkdownFile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(destroyMock).toHaveBeenCalledTimes(1));
+    expect(writeMarkdownFile).toHaveBeenCalledWith("/tmp/first.md", "# First edits");
+    expect(writeMarkdownFile).toHaveBeenCalledWith("/tmp/second.md", "# Second edits");
   });
 
   it("cancels closing the window when the user cancels the unsaved-changes dialog", async () => {

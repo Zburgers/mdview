@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -18,6 +19,51 @@ test("release version gate rejects a mismatched tag", async () => {
   await assert.rejects(
     exec(process.execPath, ["scripts/validate-release-version.mjs", "--tag", "v1.2.3"], { cwd: root }),
     /does not match version/
+  );
+});
+
+test("release tag resolver accepts lightweight and annotated tags", async () => {
+  const resolver = path.join(root, "scripts/resolve-release-tag.mjs");
+  const lightweight = await runResolver(resolver, "abc123\trefs/tags/v1.2.5\n");
+  assert.equal(lightweight.stdout.trim(), "abc123");
+
+  const annotated = await runResolver(
+    resolver,
+    "tag456\trefs/tags/v1.2.5\ntag456\trefs/tags/v1.2.5^{}\n"
+  );
+  assert.equal(annotated.stdout.trim(), "tag456");
+
+  await assert.rejects(runResolver(resolver, ""), /does not resolve to a commit/);
+});
+
+test("version bump updates every release source", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "mdview-version-"));
+  await mkdir(path.join(temp, "src-tauri"));
+  await writeFile(path.join(temp, "package.json"), '{"name":"mdview","version":"1.2.4"}\n');
+  await writeFile(path.join(temp, "src-tauri/tauri.conf.json"), '{"version":"1.2.4"}\n');
+  await writeFile(path.join(temp, "src-tauri/Cargo.toml"), '[package]\nversion = "1.2.4"\n');
+  await writeFile(
+    path.join(temp, "src-tauri/Cargo.lock"),
+    '[[package]]\nname = "mdview"\nversion = "1.2.4"\n'
+  );
+  await writeFile(
+    path.join(temp, "CHANGELOG.md"),
+    "# Changelog\n\nAll notable changes to this project will be documented in this file.\n"
+  );
+
+  await exec(process.execPath, [
+    "scripts/bump-version.mjs", "--version", "1.2.5", "--root", temp
+  ], { cwd: root });
+
+  assert.equal(JSON.parse(await readFile(path.join(temp, "package.json"), "utf8")).version, "1.2.5");
+  assert.equal(JSON.parse(await readFile(path.join(temp, "src-tauri/tauri.conf.json"), "utf8")).version, "1.2.5");
+  assert.match(await readFile(path.join(temp, "src-tauri/Cargo.toml"), "utf8"), /version = "1\.2\.5"/);
+  assert.match(await readFile(path.join(temp, "src-tauri/Cargo.lock"), "utf8"), /name = "mdview"\nversion = "1\.2\.5"/);
+  assert.match(await readFile(path.join(temp, "CHANGELOG.md"), "utf8"), /## \[1\.2\.5\]/);
+
+  await assert.rejects(
+    exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.4", "--root", temp], { cwd: root }),
+    /Cannot release 1\.2\.4 over current version 1\.2\.5/
   );
 });
 
@@ -52,9 +98,71 @@ test("updater manifest requires matching tag and signed assets", async () => {
 test("release workflow validates before bundling and publishes tags only", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-build.yml"), "utf8");
   assert.match(workflow, /node --test tests\/release-integrity\.test\.mjs/);
+  assert.match(workflow, /actions\/checkout@v4[\s\S]*?fetch-depth: 0/);
+  assert.match(workflow, /Require tagged release commit on main[\s\S]*?git merge-base --is-ancestor "\$\{GITHUB_SHA\}" origin\/main[\s\S]*?bundle:/);
   assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?needs: validate/);
+  assert.match(workflow, /bundle:[\s\S]*?if:\s*>-\s*\n\s*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.doesNotMatch(workflow, /github\.event_name == 'workflow_dispatch'/);
   assert.match(workflow, /publish-release:[\s\S]*?if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
   assert.match(workflow, /Refuse to mutate a release from another commit/);
+  assert.match(workflow, /refs\/tags\/\$\{GITHUB_REF_NAME\}" "refs\/tags\/\$\{GITHUB_REF_NAME\}\^\{\}" \| node scripts\/resolve-release-tag\.mjs/);
+  assert.equal((workflow.match(/node scripts\/resolve-release-tag\.mjs/g) ?? []).length, 2);
   assert.match(workflow, /cancel-in-progress: \$\{\{ !startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
   assert.doesNotMatch(workflow, /publish_release/);
 });
+
+test("merged version branches prepare and dispatch a tagged release", async () => {
+  const workflow = await readFile(path.join(root, ".github/workflows/release-on-merge.yml"), "utf8");
+  assert.match(workflow, /types: \[closed\]/);
+  assert.match(workflow, /github\.event\.pull_request\.merged == true/);
+  assert.ok(workflow.includes('if [[ "${HEAD_REF}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]'));
+  assert.match(workflow, /for attempt in 1 2 3; do/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{base_sha\}"/);
+  assert.match(workflow, /git checkout --detach "\$\{base_sha\}"/);
+  assert.match(workflow, /node scripts\/bump-version\.mjs --version "\$\{VERSION\}"/);
+  assert.match(workflow, /fetch first\|non-fast-forward/);
+  assert.match(workflow, /permission\|denied\|protected branch/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{next_base\}"/);
+  assert.match(workflow, /git ls-remote origin "refs\/tags\/\$\{TAG\}"/);
+  assert.match(workflow, /git push --porcelain --atomic origin HEAD:main "\$\{TAG\}"/);
+  assert.match(workflow, /gh workflow run release-build\.yml .*--ref "\$\{TAG\}"/);
+  assert.match(workflow, /actions: write/);
+});
+
+test("1.2.5 changelog entry produces release-valid notes", async () => {
+  const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
+  const heading = "## [1.2.5]";
+  const start = changelog.indexOf(heading);
+  assert.notEqual(start, -1);
+
+  const afterHeading = changelog.slice(start + heading.length).trimStart();
+  const nextHeading = afterHeading.search(/^## \[/m);
+  const section = (nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)).trim();
+  const releaseNotes = `# mdview v1.2.5\n\n${section}\n`;
+
+  assert.ok(section.length > 0);
+  assert.ok(releaseNotes.split(/\r?\n/).length > 2);
+  assert.match(section, /Mermaid SVG remote resources hidden by CSS escapes, comments, and special-scheme URLs/);
+  assert.doesNotMatch(section, /Automatically released from merged version branch/);
+});
+
+function runResolver(resolver, input) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [resolver], { cwd: root });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(stderr);
+      Object.assign(error, { code, stdout, stderr });
+      reject(error);
+    });
+    child.stdin.end(input);
+  });
+}

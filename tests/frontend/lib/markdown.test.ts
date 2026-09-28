@@ -35,6 +35,115 @@ describe("markdown helpers", () => {
     expect(html).not.toContain("<script");
   });
 
+  it("maps rendered task checkboxes past task-like fenced code", async () => {
+    const html = await renderMarkdown("```md\n- [ ] example\n```\n\n- [ ] real task");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = document.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(checkboxes).toHaveLength(1);
+    expect(checkboxes[0].getAttribute("data-line")).toBe("4");
+  });
+
+  it("skips standalone indented code and keeps nested task line mappings", async () => {
+    const indentedCode = await renderMarkdown("    - [ ] example\n\n- [ ] real task");
+    const codeDocument = new DOMParser().parseFromString(indentedCode, "text/html");
+    const codeCheckboxes = codeDocument.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(codeCheckboxes).toHaveLength(1);
+    expect(codeCheckboxes[0].getAttribute("data-line")).toBe("2");
+
+    const nestedList = await renderMarkdown("- [ ] parent\n    - [ ] nested\n- [ ] next");
+    const nestedDocument = new DOMParser().parseFromString(nestedList, "text/html");
+    const nestedCheckboxes = Array.from(
+      nestedDocument.querySelectorAll('.task-list-item input[type="checkbox"]')
+    );
+
+    expect(nestedCheckboxes.map((checkbox) => checkbox.getAttribute("data-line"))).toEqual([
+      "0",
+      "1",
+      "2"
+    ]);
+
+    const nestedCode = await renderMarkdown(
+      "- parent\n    ```md\n    - [ ] example\n    ```\n- [ ] real task"
+    );
+    const nestedCodeDocument = new DOMParser().parseFromString(nestedCode, "text/html");
+    const nestedCodeCheckboxes = nestedCodeDocument.querySelectorAll(
+      '.task-list-item input[type="checkbox"]'
+    );
+
+    expect(nestedCodeCheckboxes).toHaveLength(1);
+    expect(nestedCodeCheckboxes[0].getAttribute("data-line")).toBe("4");
+  });
+
+  it("does not let tab-indented code shift a real task checkbox mapping", async () => {
+    const html = await renderMarkdown("\t- [ ] code example\n\n- [ ] real task");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = document.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(checkboxes).toHaveLength(1);
+    expect(checkboxes[0].getAttribute("data-line")).toBe("2");
+  });
+
+  it("maps ordered-list task checkboxes to their source lines", async () => {
+    const html = await renderMarkdown("# Tasks\n\n1. [ ] first\n2. [x] second\n\n- [ ] final");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = Array.from(
+      document.querySelectorAll('.task-list-item input[type="checkbox"]')
+    );
+
+    expect(checkboxes.map((checkbox) => checkbox.getAttribute("data-line"))).toEqual([
+      "2",
+      "3",
+      "5"
+    ]);
+  });
+
+  it("parses wikilink targets, aliases, headings, and block references", async () => {
+    const html = await renderMarkdown(
+      "[[Page]] [[Page|Alias]] [[Page#Heading]] [[Page^block]] [[Page#Heading^block|Heading alias]]"
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const links = Array.from(document.querySelectorAll("a.wikilink"));
+
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Page",
+      "Alias",
+      "Page",
+      "Page",
+      "Heading alias"
+    ]);
+    expect(links[2].getAttribute("data-heading")).toBe("Heading");
+    expect(links[3].getAttribute("data-block")).toBe("block");
+    expect(links[4].getAttribute("data-heading")).toBe("Heading");
+    expect(links[4].getAttribute("data-block")).toBe("block");
+  });
+
+  it("renders inline and block math through KaTeX", async () => {
+    const html = await renderMarkdown("Inline $x^2$\n\n$$\ny = x^2\n$$");
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector(".math-inline .katex")).not.toBeNull();
+    expect(document.querySelector(".math-block .katex")).not.toBeNull();
+  });
+
+  it("contains malformed and untrusted math input", async () => {
+    const html = await renderMarkdown(
+      "$\\notacommand$ and $\\href{javascript:alert(1)}{click}$"
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector(".math-inline .katex")?.textContent).toContain("\\notacommand");
+    expect(document.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it("renders single source newlines as visible paragraph breaks", async () => {
+    const html = await renderMarkdown("First line\nSecond line");
+    const document = new DOMParser().parseFromString(html, "text/html");
+
+    expect(document.querySelector("p")?.innerHTML).toBe("First line<br>Second line");
+  });
+
   it("keeps the preview allowlist narrow for raw HTML", async () => {
     const html = await renderMarkdown(
       "<details><summary>Allowed</summary><p>Text</p></details>" +
@@ -178,6 +287,68 @@ describe("markdown helpers", () => {
     expect(svg).not.toContain("asset://localhost/private.png");
     expect(svg).not.toContain("data:image/svg+xml");
     expect(svg).toContain("data:image/png;base64,AAAA");
+  });
+
+  it("blocks CSS-escaped remote resources in Mermaid SVG while retaining local styling", () => {
+    const svg = sanitizeMermaidSvg(String.raw`<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(h\74tps://example.com/pixel.png); }</style><rect style="fill: blue; filter: url(//example.com/filter.svg#filter)"/><circle style="fill: red"/></svg>`);
+
+    expect(svg).not.toContain("<style");
+    expect(svg).toContain("<rect");
+    expect(svg).not.toContain("filter:");
+    expect(svg).toContain('style="fill: red"');
+    expect(svg).not.toContain("example.com");
+  });
+
+  it("blocks remote styles on the Mermaid SVG root", () => {
+    const svg = sanitizeMermaidSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" style="background-image: url(https:example.com/pixel.png)"><circle style="fill: red"/></svg>'
+    );
+
+    expect(svg).not.toContain("example.com");
+    expect(svg).not.toContain("background-image");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "h/**/ttps://example.com/pixel.png",
+    "/**///example.com/pixel.png",
+    "https:example.com/pixel.png",
+    String.raw`https:\\example.com/pixel.png`
+  ])("blocks remote Mermaid CSS resources: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(${remoteUrl}); }</style><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("<style");
+    expect(svg).not.toContain("example.com");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "https:example.com/pixel.png",
+    String.raw`https:\\example.com/pixel.png`
+  ])("blocks protocol-bearing remote SVG attributes: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><a href="${remoteUrl}">remote</a><image href="${remoteUrl}"/><image src="${remoteUrl}"/><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("example.com");
+    expect(svg).not.toContain("href=");
+    expect(svg).not.toContain("src=");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "h\\74\r\ntps://example.com/pixel.png",
+    "h\\\r\nttps://example.com/pixel.png"
+  ])("blocks a Mermaid CSS remote scheme across a CRLF escape: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(${remoteUrl}); }</style><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("<style");
+    expect(svg).not.toContain("example.com");
+    expect(svg).toContain('style="fill: red"');
   });
 
   it("preserves a Mermaid remote image only when the setting is enabled", () => {
