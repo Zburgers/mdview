@@ -27,9 +27,11 @@ jobs:
         shell: bash
         run: |
           if [[ "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=${HEAD_REF}" >> "$GITHUB_OUTPUT"
-            echo "tag=v${HEAD_REF}" >> "$GITHUB_OUTPUT"
+            {
+              echo "should_release=true"
+              echo "version=${HEAD_REF}"
+              echo "tag=v${HEAD_REF}"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "Merged branch ${HEAD_REF} is not a version branch; skipping release."
@@ -43,43 +45,99 @@ jobs:
         if: steps.release.outputs.should_release == 'true'
         with:
           node-version: 22
-      - name: Prepare version commit
+      - name: Prepare version commit and immutable tag
         if: steps.release.outputs.should_release == 'true'
         env:
           VERSION: ${{ steps.release.outputs.version }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-        shell: bash
-        run: |
-          git fetch origin main --tags
-          if [[ "$(git rev-parse origin/main)" != "${MERGE_SHA}" ]]; then
-            echo "main moved after the release branch was merged; rerun this release after reviewing the new main tip." >&2
-            exit 1
-          fi
-          node scripts/bump-version.mjs --version "${VERSION}"
-      - name: Create version commit and immutable tag
-        if: steps.release.outputs.should_release == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
           TAG: ${{ steps.release.outputs.tag }}
         shell: bash
         run: |
-          if git ls-remote --exit-code origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Release tag ${TAG} already exists." >&2
-            exit 1
-          fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "Version ${VERSION} is already prepared on the merged commit."
-          else
-            git commit -m "release: v${VERSION}"
-          fi
-          git tag -a "${TAG}" -m "Release ${TAG}"
-          git push --atomic origin HEAD:main "${TAG}"
+
+          # ponytail: 3 push attempts; raise only if main contention is observed in practice.
+          for attempt in 1 2 3; do
+            git fetch origin main --tags
+            base_sha="$(git rev-parse origin/main)"
+            if ! git merge-base --is-ancestor "${MERGE_SHA}" "${base_sha}"; then
+              echo "main no longer contains release merge ${MERGE_SHA}; refusing to publish." >&2
+              exit 1
+            fi
+
+            git checkout --detach "${base_sha}"
+            if ! remote_tag="$(git ls-remote origin "refs/tags/${TAG}")"; then
+              echo "Could not verify whether release tag ${TAG} already exists." >&2
+              exit 1
+            fi
+            if [[ -n "${remote_tag}" ]]; then
+              echo "Release tag ${TAG} already exists." >&2
+              exit 1
+            fi
+
+            node scripts/bump-version.mjs --version "${VERSION}"
+            git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+            git diff --cached --check
+            if git diff --cached --quiet; then
+              echo "Version ${VERSION} is already prepared on main ${base_sha}."
+            else
+              git commit -m "release: v${VERSION}"
+            fi
+            git tag -a "${TAG}" -m "Release ${TAG}"
+
+            push_output="$(mktemp)"
+            if git push --porcelain --atomic origin HEAD:main "${TAG}" >"${push_output}" 2>&1; then
+              cat "${push_output}"
+              rm -f "${push_output}"
+              break
+            else
+              push_status=$?
+            fi
+            cat "${push_output}" >&2
+
+            if grep -Eiq 'permission|denied|protected branch|authentication|403|not authorized' "${push_output}"; then
+              rm -f "${push_output}"
+              echo "Release push failed due to an authorization or branch policy error; not retrying." >&2
+              exit "${push_status}"
+            fi
+            if ! grep -Eiq '\[rejected\] \((fetch first|non-fast-forward)\)' "${push_output}"; then
+              rm -f "${push_output}"
+              echo "Release push failed for a reason other than main advancing; not retrying." >&2
+              exit "${push_status}"
+            fi
+
+            if ! remote_tag="$(git ls-remote origin "refs/tags/${TAG}")"; then
+              rm -f "${push_output}"
+              echo "Could not verify whether release tag ${TAG} already exists after the failed push." >&2
+              exit 1
+            fi
+            if [[ -n "${remote_tag}" ]]; then
+              rm -f "${push_output}"
+              echo "Release tag ${TAG} appeared during the failed push; refusing to replace it." >&2
+              exit 1
+            fi
+
+            git fetch origin main --tags
+            next_base="$(git rev-parse origin/main)"
+            if [[ "${next_base}" == "${base_sha}" ]]; then
+              rm -f "${push_output}"
+              echo "The remote main ref did not advance; refusing to retry the release push." >&2
+              exit "${push_status}"
+            fi
+            if ! git merge-base --is-ancestor "${MERGE_SHA}" "${next_base}"; then
+              rm -f "${push_output}"
+              echo "main advanced without retaining release merge ${MERGE_SHA}; refusing to publish." >&2
+              exit 1
+            fi
+
+            rm -f "${push_output}"
+            git tag -d "${TAG}"
+            if [[ "${attempt}" == 3 ]]; then
+              echo "main kept advancing after 3 release push attempts; no tag was published." >&2
+              exit 1
+            fi
+            echo "main advanced to ${next_base}; retrying from that main tip (attempt $((attempt + 1)) of 3)."
+          done
       - name: Dispatch native release build
         if: steps.release.outputs.should_release == 'true'
         env:

@@ -53,13 +53,20 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("../../../src/components/Preview", () => ({
-  Preview: ({ markdown, onOpenWikilink }: { markdown: string; onOpenWikilink?: (target: string) => void }) => (
+  Preview: ({ markdown, onOpenWikilink, onToggleTask }: {
+    markdown: string;
+    onOpenWikilink?: (target: string) => void;
+    onToggleTask?: (line: number) => void;
+  }) => (
     <>
       <article className="preview markdown-body" data-testid="preview">
         {markdown}
       </article>
       {markdown.includes("[[Target]]") ? (
         <button type="button" onClick={() => onOpenWikilink?.("Target")}>Open test wikilink</button>
+      ) : null}
+      {markdown.includes("1. [ ] ordered task") ? (
+        <button type="button" onClick={() => onToggleTask?.(0)}>Toggle test task</button>
       ) : null}
     </>
   )
@@ -89,6 +96,14 @@ const matchMediaMock = vi.fn(() => ({
 afterEach(() => {
   cleanup();
 });
+
+function makeOversizedFile(name: string, type: string) {
+  const file = new File([], name, { type });
+  const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
+  Object.defineProperty(file, "size", { value: 20 * 1024 * 1024 + 1 });
+  Object.defineProperty(file, "arrayBuffer", { value: arrayBuffer });
+  return { file, arrayBuffer };
+}
 
 describe("App desktop layout", () => {
   beforeEach(() => {
@@ -265,6 +280,19 @@ describe("App desktop layout", () => {
     fireEvent.change(sourcePane, { target: { value: "" } });
     expect(sourcePane).toHaveValue("");
     expect(screen.queryByRole("heading", { name: "Open Markdown File" })).not.toBeInTheDocument();
+  });
+
+  it("toggles ordered-list tasks in the source", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    fireEvent.click(screen.getByTitle("Split"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    fireEvent.change(source, { target: { value: "1. [ ] ordered task" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Toggle test task" }));
+
+    await waitFor(() => expect(source).toHaveValue("1. [x] ordered task"));
+    expect(screen.getByRole("tab", { name: "Untitled unsaved" })).toBeInTheDocument();
   });
 
   it("opens the startup file supplied by the desktop file association", async () => {
@@ -503,6 +531,21 @@ describe("App desktop layout", () => {
     ));
   });
 
+  it("rejects oversized pasted files before reading their bytes", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const { file, arrayBuffer } = makeOversizedFile("large.png", "image/png");
+
+    fireEvent.paste(source, { clipboardData: { files: [file] } });
+
+    expect(await screen.findByText("File too large (20 MB limit): large.png")).toBeInTheDocument();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(writeAttachmentBytes).not.toHaveBeenCalled();
+  });
+
   it("writes pathless dropped file bytes through the constrained native attachment command", async () => {
     vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
     vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
@@ -519,6 +562,21 @@ describe("App desktop layout", () => {
       "report.pdf",
       expect.any(Uint8Array)
     ));
+  });
+
+  it("rejects oversized pathless drops before reading their bytes", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/example.md");
+    vi.mocked(readMarkdownFile).mockResolvedValue({ path: "/tmp/example.md", contents: "# Example", lossy: false });
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    const { file, arrayBuffer } = makeOversizedFile("large.png", "image/png");
+
+    fireEvent.drop(source, { dataTransfer: { files: [file] } });
+
+    expect(await screen.findByText("File too large (20 MB limit): large.png")).toBeInTheDocument();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(writeAttachmentBytes).not.toHaveBeenCalled();
   });
 
   it("keeps edits dirty when they change while a save is pending", async () => {

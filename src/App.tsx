@@ -41,6 +41,8 @@ const initialDocument: MarkdownDocument = {
   dirty: false
 };
 
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 const createInitialTab = (id = "tab-1"): MarkdownTab => ({
   ...initialDocument,
   id
@@ -625,7 +627,7 @@ export default function App() {
     if (line < 0 || line >= lines.length) return;
     const original = lines[line];
     const toggled = original.replace(
-      /^(\s*[-*+]\s+)\[([ xX])\]/,
+      /^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]/,
       (_m: string, prefix: string, mark: string) =>
         `${prefix}[${mark.trim().toLowerCase() === "x" ? " " : "x"}]`
     );
@@ -733,8 +735,12 @@ export default function App() {
   async function writeFileAttachment(file: File, fallbackName: string) {
     if (!documentState.path) return;
     const sanitized = sanitizeAttachmentName(file.name || fallbackName);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setStatus(`File too large (20 MB limit): ${sanitized}`);
+      return;
+    }
     const buffer = new Uint8Array(await file.arrayBuffer());
-    if (buffer.length > 20 * 1024 * 1024) {
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
       setStatus(`File too large (20 MB limit): ${sanitized}`);
       return;
     }

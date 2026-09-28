@@ -116,10 +116,34 @@ test("merged version branches prepare and dispatch a tagged release", async () =
   assert.match(workflow, /types: \[closed\]/);
   assert.match(workflow, /github\.event\.pull_request\.merged == true/);
   assert.ok(workflow.includes('if [[ "${HEAD_REF}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]'));
-  assert.match(workflow, /node scripts\/bump-version\.mjs --version/);
-  assert.match(workflow, /git push --atomic origin HEAD:main "\$\{TAG\}"/);
+  assert.match(workflow, /for attempt in 1 2 3; do/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{base_sha\}"/);
+  assert.match(workflow, /git checkout --detach "\$\{base_sha\}"/);
+  assert.match(workflow, /node scripts\/bump-version\.mjs --version "\$\{VERSION\}"/);
+  assert.match(workflow, /fetch first\|non-fast-forward/);
+  assert.match(workflow, /permission\|denied\|protected branch/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{next_base\}"/);
+  assert.match(workflow, /git ls-remote origin "refs\/tags\/\$\{TAG\}"/);
+  assert.match(workflow, /git push --porcelain --atomic origin HEAD:main "\$\{TAG\}"/);
   assert.match(workflow, /gh workflow run release-build\.yml .*--ref "\$\{TAG\}"/);
   assert.match(workflow, /actions: write/);
+});
+
+test("1.2.5 changelog entry produces release-valid notes", async () => {
+  const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
+  const heading = "## [1.2.5]";
+  const start = changelog.indexOf(heading);
+  assert.notEqual(start, -1);
+
+  const afterHeading = changelog.slice(start + heading.length).trimStart();
+  const nextHeading = afterHeading.search(/^## \[/m);
+  const section = (nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)).trim();
+  const releaseNotes = `# mdview v1.2.5\n\n${section}\n`;
+
+  assert.ok(section.length > 0);
+  assert.ok(releaseNotes.split(/\r?\n/).length > 2);
+  assert.match(section, /Mermaid SVG remote resources hidden by CSS escapes, comments, and special-scheme URLs/);
+  assert.doesNotMatch(section, /Automatically released from merged version branch/);
 });
 
 function runResolver(resolver, input) {

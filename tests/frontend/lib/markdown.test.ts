@@ -76,6 +76,29 @@ describe("markdown helpers", () => {
     expect(nestedCodeCheckboxes[0].getAttribute("data-line")).toBe("4");
   });
 
+  it("does not let tab-indented code shift a real task checkbox mapping", async () => {
+    const html = await renderMarkdown("\t- [ ] code example\n\n- [ ] real task");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = document.querySelectorAll('.task-list-item input[type="checkbox"]');
+
+    expect(checkboxes).toHaveLength(1);
+    expect(checkboxes[0].getAttribute("data-line")).toBe("2");
+  });
+
+  it("maps ordered-list task checkboxes to their source lines", async () => {
+    const html = await renderMarkdown("# Tasks\n\n1. [ ] first\n2. [x] second\n\n- [ ] final");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    const checkboxes = Array.from(
+      document.querySelectorAll('.task-list-item input[type="checkbox"]')
+    );
+
+    expect(checkboxes.map((checkbox) => checkbox.getAttribute("data-line"))).toEqual([
+      "2",
+      "3",
+      "5"
+    ]);
+  });
+
   it("parses wikilink targets, aliases, headings, and block references", async () => {
     const html = await renderMarkdown(
       "[[Page]] [[Page|Alias]] [[Page#Heading]] [[Page^block]] [[Page#Heading^block|Heading alias]]"
@@ -264,6 +287,68 @@ describe("markdown helpers", () => {
     expect(svg).not.toContain("asset://localhost/private.png");
     expect(svg).not.toContain("data:image/svg+xml");
     expect(svg).toContain("data:image/png;base64,AAAA");
+  });
+
+  it("blocks CSS-escaped remote resources in Mermaid SVG while retaining local styling", () => {
+    const svg = sanitizeMermaidSvg(String.raw`<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(h\74tps://example.com/pixel.png); }</style><rect style="fill: blue; filter: url(//example.com/filter.svg#filter)"/><circle style="fill: red"/></svg>`);
+
+    expect(svg).not.toContain("<style");
+    expect(svg).toContain("<rect");
+    expect(svg).not.toContain("filter:");
+    expect(svg).toContain('style="fill: red"');
+    expect(svg).not.toContain("example.com");
+  });
+
+  it("blocks remote styles on the Mermaid SVG root", () => {
+    const svg = sanitizeMermaidSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" style="background-image: url(https:example.com/pixel.png)"><circle style="fill: red"/></svg>'
+    );
+
+    expect(svg).not.toContain("example.com");
+    expect(svg).not.toContain("background-image");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "h/**/ttps://example.com/pixel.png",
+    "/**///example.com/pixel.png",
+    "https:example.com/pixel.png",
+    String.raw`https:\\example.com/pixel.png`
+  ])("blocks remote Mermaid CSS resources: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(${remoteUrl}); }</style><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("<style");
+    expect(svg).not.toContain("example.com");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "https:example.com/pixel.png",
+    String.raw`https:\\example.com/pixel.png`
+  ])("blocks protocol-bearing remote SVG attributes: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><a href="${remoteUrl}">remote</a><image href="${remoteUrl}"/><image src="${remoteUrl}"/><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("example.com");
+    expect(svg).not.toContain("href=");
+    expect(svg).not.toContain("src=");
+    expect(svg).toContain('style="fill: red"');
+  });
+
+  it.each([
+    "h\\74\r\ntps://example.com/pixel.png",
+    "h\\\r\nttps://example.com/pixel.png"
+  ])("blocks a Mermaid CSS remote scheme across a CRLF escape: %s", (remoteUrl) => {
+    const svg = sanitizeMermaidSvg(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>.node { background-image: url(${remoteUrl}); }</style><circle style="fill: red"/></svg>`
+    );
+
+    expect(svg).not.toContain("<style");
+    expect(svg).not.toContain("example.com");
+    expect(svg).toContain('style="fill: red"');
   });
 
   it("preserves a Mermaid remote image only when the setting is enabled", () => {

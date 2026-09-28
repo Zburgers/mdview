@@ -9,6 +9,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 static NEXT_MARKDOWN_TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
+const MAX_MARKDOWN_BYTES: usize = 20 * 1024 * 1024;
+
 const ALLOWED_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "avif", "bmp", "csv", "gif", "ico", "jpeg", "jpg", "log", "md", "markdown", "mdown", "mkd",
     "pdf", "png", "svg", "text", "tif", "tiff", "tsv", "txt", "webp",
@@ -49,16 +51,15 @@ impl Default for AppSettings {
 fn read_markdown_file(path: String) -> Result<ReadFileResponse, String> {
     let path_buf = normalize_user_file_path(&path)?;
     ensure_markdown_like(&path_buf)?;
-    const MAX_MARKDOWN_BYTES: u64 = 20 * 1024 * 1024;
     let file =
         fs::File::open(&path_buf).map_err(|error| format!("Could not read file: {error}"))?;
     let metadata = file
         .metadata()
         .map_err(|error| format!("Could not inspect file: {error}"))?;
-    if metadata.len() > MAX_MARKDOWN_BYTES {
+    if metadata.len() > MAX_MARKDOWN_BYTES as u64 {
         return Err("Markdown file exceeds the 20 MB limit.".to_string());
     }
-    let bytes = read_bounded(file, MAX_MARKDOWN_BYTES as usize)?;
+    let bytes = read_bounded(file, MAX_MARKDOWN_BYTES)?;
     let lossy = std::str::from_utf8(&bytes).is_err();
     let contents = String::from_utf8_lossy(&bytes).to_string();
 
@@ -99,6 +100,10 @@ fn allow_markdown_image(
 
 #[tauri::command]
 fn write_markdown_file(path: String, contents: String) -> Result<String, String> {
+    if contents.len() > MAX_MARKDOWN_BYTES {
+        return Err("Markdown file exceeds the 20 MB limit.".to_string());
+    }
+
     let mut path_buf = normalize_user_file_path(&path)?;
 
     // Auto-append .md if no recognized extension
@@ -897,6 +902,25 @@ mod tests {
         assert_eq!(
             fs::read_to_string(path).expect("read replacement"),
             "new contents"
+        );
+    }
+
+    #[test]
+    fn saving_markdown_rejects_oversized_contents_without_replacing_existing_file() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("existing.md");
+        fs::write(&path, "keep existing contents").expect("write existing file");
+
+        let error = write_markdown_file(
+            path.to_string_lossy().to_string(),
+            "x".repeat(MAX_MARKDOWN_BYTES + 1),
+        )
+        .expect_err("reject oversized Markdown save");
+
+        assert!(error.contains("20 MB"));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read existing file"),
+            "keep existing contents"
         );
     }
 

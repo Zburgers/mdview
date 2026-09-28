@@ -4,7 +4,7 @@ import "katex/dist/katex.min.css";
 import { Marked } from "marked";
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkd", "txt", "text"]);
-const remoteResourcePattern = /(?:https?|ftps?|wss?):\/\/|(?:^|[\s("'=])\/\/[a-z0-9]/i;
+const remoteResourcePattern = /(?:https?|ftps?|wss?):|(?:^|[\s("'=(])\/{2,}[a-z0-9]/i;
 const allowedDataImagePattern =
   /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i;
 
@@ -192,7 +192,7 @@ export function getMarkdownFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
-// ponytail: tab-indented code can still confuse this heuristic; upgrade to full source-position parsing if it causes a real mismatch.
+// ponytail: container indentation is heuristic; use parser source offsets if another concrete mismatch appears.
 export function getTaskLineMap(markdown: string): number[] {
   const lines = markdown.split("\n");
   const map: number[] = [];
@@ -201,7 +201,11 @@ export function getTaskLineMap(markdown: string): number[] {
 
   lines.forEach((line, idx) => {
     const content = line.replace(/^(?: {0,3}>[\t ]?)+/, "");
-    const indent = content.length - content.trimStart().length;
+    const leadingIndent = /^[\t ]*/.exec(content)?.[0] ?? "";
+    const indent = [...leadingIndent].reduce(
+      (columns, character) => character === "\t" ? columns + 4 - (columns % 4) : columns + 1,
+      0
+    );
     const isNestedList = listIndents.some((parentIndent) => indent > parentIndent && indent < parentIndent + 6);
     if (fence) {
       const closingFence = /^( *)(`+|~+)[\t ]*$/.exec(content);
@@ -236,7 +240,7 @@ export function getTaskLineMap(markdown: string): number[] {
       listIndents.pop();
     }
 
-    const isTask = /^\s*[-*+]\s+\[[ xX]\]\s+/.test(content);
+    const isTask = /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s+/.test(content);
     const isMarkdownList = indent < 4 || isNestedList;
     if (isTask && isMarkdownList) {
       map.push(idx);
@@ -397,6 +401,53 @@ export function containsRemoteResourceReference(value: string): boolean {
   return remoteResourcePattern.test(value);
 }
 
+function containsRemoteCssResourceReference(value: string): boolean {
+  return containsRemoteResourceReference(decodeCssEscapes(removeCssComments(value)));
+}
+
+function removeCssComments(value: string): string {
+  let result = "";
+  let quote: "'" | '"' | null = null;
+
+  for (let index = 0; index < value.length;) {
+    const character = value[index];
+    if (character === "\\") {
+      result += value.slice(index, index + 2);
+      index += 2;
+    } else if (quote) {
+      result += character;
+      if (character === quote) quote = null;
+      index += 1;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+      result += character;
+      index += 1;
+    } else if (character === "/" && value[index + 1] === "*") {
+      const commentEnd = value.indexOf("*/", index + 2);
+      if (commentEnd < 0) break;
+      index = commentEnd + 2;
+    } else {
+      result += character;
+      index += 1;
+    }
+  }
+
+  return result;
+}
+
+function decodeCssEscapes(value: string): string {
+  return value.replace(
+    /\\(?:([0-9a-f]{1,6})(?:\r\n|[\t\n\f\r ])?|(\r\n|[\s\S]))/gi,
+    (_match, hex: string | undefined, escaped: string | undefined) => {
+      if (hex === undefined) {
+        return escaped && /[\r\n\f]/.test(escaped) ? "" : escaped ?? "";
+      }
+      const codePoint = Number.parseInt(hex, 16);
+      return codePoint === 0 || codePoint > 0x10ffff ? "\uFFFD" : String.fromCodePoint(codePoint);
+    }
+  );
+}
+
 export function sanitizeMermaidSvg(
   svg: string,
   { allowRemoteImages = false }: MarkdownRenderOptions = {}
@@ -430,7 +481,7 @@ export function sanitizeMermaidSvg(
   });
 
   if (!allowRemoteImages) {
-    root.querySelectorAll("*").forEach((element) => {
+    [root, ...root.querySelectorAll("*")].forEach((element) => {
       if (element.nodeName.toLowerCase() !== "image") {
         ["href", "xlink:href", "src"].forEach((attribute) => {
           const value = element.getAttribute(attribute);
@@ -441,13 +492,13 @@ export function sanitizeMermaidSvg(
       }
 
       const style = element.getAttribute("style");
-      if (style && containsRemoteResourceReference(style)) {
+      if (style && containsRemoteCssResourceReference(style)) {
         element.removeAttribute("style");
       }
     });
 
     root.querySelectorAll("style").forEach((style) => {
-      if (containsRemoteResourceReference(style.textContent ?? "")) {
+      if (containsRemoteCssResourceReference(style.textContent ?? "")) {
         style.remove();
       }
     });
