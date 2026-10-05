@@ -40,6 +40,10 @@ export function resolveMarkdownImagePath(markdownPath: string, imagePath: string
   return invoke("allow_markdown_image", { markdownPath, imagePath });
 }
 
+export function resolveMarkdownLinkTarget(markdownPath: string, relativePath: string): Promise<string> {
+  return invoke("resolve_markdown_link_target", { markdownPath, relativePath });
+}
+
 export function writeMarkdownFile(path: string, contents: string): Promise<string> {
   return invoke("write_markdown_file", { path, contents });
 }

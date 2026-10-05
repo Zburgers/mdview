@@ -1,6 +1,6 @@
 # Markdown Rendering Sandbox
 
-This document describes the rendering and navigation boundary used by mdview `1.2.4`.
+This document describes the rendering and navigation boundary used by mdview `1.3.0`.
 
 ## Security objective
 
@@ -75,11 +75,11 @@ Remote images are blocked by default before sanitized HTML is inserted into the 
 
 Allowed document inputs by default:
 
-- relative image paths resolved from the opened Markdown file's directory
+- relative image paths resolved from the opened Markdown file's directory, including `../` references to parent folders
 - blob URLs
 - raster image data URLs for AVIF, BMP, GIF, JPEG, PNG, WebP, and supported icon formats
 
-Relative paths do not enter the preview as privileged URLs. After the document source has passed the image policy, mdview resolves the path against the opened document and creates the Tauri asset URL itself.
+Relative paths do not enter the preview as privileged URLs. After the document source has passed the image policy, Rust decodes percent-encoded path bytes once, resolves and canonicalizes the path against the opened document, and requires a regular file with a supported image extension no larger than 20 MiB. mdview then creates the Tauri asset URL itself. Canonicalization also resolves filesystem aliases before authorization.
 
 Blocked document inputs by default:
 
@@ -121,7 +121,9 @@ For every Markdown link:
 - confirmed links open through the Tauri opener in the operating system's default browser
 - declined links remain unopened
 - opener failures are reported in a native error dialog
-- local file links are not opened automatically
+- ordinary relative Markdown/text links (including `../` and percent-encoded paths) are resolved and canonicalized by Rust only after a click, then opened through mdview's existing tab path; targets must exist, be regular files, and use a supported Markdown/text extension
+- local links are never resolved during rendering, hover, or automatic resource loading
+- absolute paths and URI schemes supplied as document links remain blocked
 - unsupported schemes such as `javascript:`, `mailto:`, or custom protocols are blocked and explained in a native dialog
 - same-document fragment links only scroll to an existing element ID
 
@@ -138,7 +140,7 @@ The Tauri webview content-security policy provides a second containment layer:
 
 ## Validation coverage
 
-The `1.2.4` regression suite covers:
+The `1.3.0` regression suite covers:
 
 - script and active HTML removal
 - the raw HTML allowlist
@@ -152,6 +154,8 @@ The `1.2.4` regression suite covers:
 - Mermaid source network-resource detection
 - Mermaid SVG script and image-resource policy enforcement
 - native external-link confirmation
+- document-relative Markdown link canonicalization, percent decoding, aliases, missing/directory/unsupported targets, and privileged/absolute-path rejection
+- parent-relative local image resolution, percent decoding, aliases, and existing file/extension/20 MiB checks
 - declined and failed browser opens
 - blocked protocol messaging
 - link context-menu suppression
@@ -161,5 +165,5 @@ The `1.2.4` regression suite covers:
 
 - DOMPurify, Marked, Mermaid, Tauri, and the platform webview remain security dependencies and should be kept updated.
 - The remote-image setting is global application state, not a per-document trust decision.
-- Local relative image loading intentionally permits a document to display files referenced relative to its own location.
+- Local relative image loading intentionally permits a document to display supported images referenced relative to its location, including images in parent folders.
 - mdview does not currently provide a host allowlist, one-time image consent, or per-document remembered trust.
