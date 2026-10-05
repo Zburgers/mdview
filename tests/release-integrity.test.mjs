@@ -11,7 +11,8 @@ const exec = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
 
 test("release version gate accepts aligned sources and matching tag", async () => {
-  const result = await exec(process.execPath, ["scripts/validate-release-version.mjs", "--tag", "v1.2.4"], { cwd: root });
+  const { version } = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const result = await exec(process.execPath, ["scripts/validate-release-version.mjs", "--tag", `v${version}`], { cwd: root });
   assert.match(result.stdout, /consistent/);
 });
 
