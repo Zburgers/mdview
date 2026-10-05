@@ -42,7 +42,7 @@ describe("Preview Mermaid enhancement", () => {
       expect(view.container.innerHTML).not.toContain("<script");
       expect(view.container.textContent).toContain("safe");
     });
-    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, theme: "default" }));
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, htmlLabels: false, theme: "default" }));
     expect(sanitize).toHaveBeenCalledWith('<svg><script>alert(1)</script><text>safe</text></svg>', { allowRemoteImages: false });
 
     view.rerender(<Preview renderState={result} filePath={null} theme="light" searchQuery="changed" />);
@@ -52,7 +52,7 @@ describe("Preview Mermaid enhancement", () => {
 
     view.rerender(<Preview renderState={result} filePath={null} theme="dark" searchQuery="changed" />);
     await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(2));
-    expect(initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark", securityLevel: "strict" }));
+    expect(initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark", securityLevel: "strict", htmlLabels: false }));
   });
 
   it("blocks remote-resource diagrams and confines syntax failures to their blocks", async () => {

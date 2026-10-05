@@ -16,7 +16,7 @@ describe("pinned Mermaid gallery qualification", () => {
     svgElement.getBBox = () => ({ x: 0, y: 0, width: 120, height: 24, top: 0, right: 120, bottom: 24, left: 0, toJSON: () => ({}) });
     svgElement.getComputedTextLength = function () { return (this.textContent ?? "").length * 8; };
     const { default: mermaid } = await import("mermaid");
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", htmlLabels: false, theme: "default" });
     const result = await renderMarkdownDocument(gallery);
     const host = document.createElement("div");
     host.innerHTML = result.html;
@@ -26,7 +26,14 @@ describe("pinned Mermaid gallery qualification", () => {
     try {
       for (const [index, source] of diagrams.entries()) {
         const { svg } = await mermaid.render(`mdview-gallery-${index}`, source);
-        expect(sanitizeMermaidSvg(svg)).toMatch(/^<svg\b/i);
+        const sanitized = sanitizeMermaidSvg(svg);
+        expect(sanitized).toMatch(/^<svg\b/i);
+        expect(sanitized).not.toMatch(/<foreignObject\b/i);
+        if (index === 0) {
+          expect(sanitized).toContain("Start");
+          expect(sanitized).toContain("Stop");
+          expect(sanitized).toMatch(/<text\b/i);
+        }
       }
     } finally {
       if (originalGetBBox) svgElement.getBBox = originalGetBBox;

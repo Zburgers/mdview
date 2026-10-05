@@ -52,7 +52,7 @@ describe("generic Mermaid enhancement", () => {
       "pie title Languages", "xychart-beta", "radar-beta", "sankey-beta"
     ]);
     expect(render.mock.calls.map(([, source]) => source)).toEqual(sources);
-    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, theme: "default" }));
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, htmlLabels: false, theme: "default" }));
     expect(root.querySelectorAll(".diagram-viewer-content svg")).toHaveLength(9);
     expect(root.innerHTML).not.toContain("<script>");
     cleanup();

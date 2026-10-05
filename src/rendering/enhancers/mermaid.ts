@@ -42,6 +42,7 @@ export function enhanceMermaid(
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
+      htmlLabels: false,
       theme: theme === "dark" ? "dark" : "default"
     });
 
