@@ -65,8 +65,8 @@ vi.mock("../../../src/components/Preview", () => ({
     const html = renderState.status === "success" ? renderState.result?.html ?? "" : "";
     return (
     <>
-      <article className="preview markdown-body" data-testid="preview">
-        <span dangerouslySetInnerHTML={{ __html: html }} />
+      <article className="preview markdown-body" data-testid="preview" aria-busy={renderState.status === "loading"}>
+        {renderState.status === "success" ? <span dangerouslySetInnerHTML={{ __html: html }} /> : null}
       </article>
       {html.includes("[[Target]]") ? (
         <button type="button" onClick={() => onOpenWikilink?.("Target")}>Open test wikilink</button>
@@ -162,7 +162,7 @@ describe("App desktop layout", () => {
     });
   });
 
-  it("renders once per Markdown change and does not parse when search changes", async () => {
+  it("renders once for Markdown and policy changes, not search, Outline, or theme changes", async () => {
     render(<App />);
     fireEvent.click(await screen.findByTitle("New Markdown File"));
     const source = await screen.findByPlaceholderText("Markdown source");
@@ -171,11 +171,20 @@ describe("App desktop layout", () => {
 
     fireEvent.change(source, { target: { value: "# First heading" } });
     await waitFor(() => expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(initialCalls + 1));
-    const markdownCalls = renderMarkdownDocumentMock.mock.calls.length;
+    const afterMarkdown = renderMarkdownDocumentMock.mock.calls.length;
     fireEvent.change(screen.getByPlaceholderText("Search document"), { target: { value: "heading" } });
+    fireEvent.click(screen.getByTitle("Toggle document outline"));
+    expect(await screen.findByRole("complementary", { name: "Document outline" })).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Select Theme"));
+    fireEvent.click(screen.getByRole("button", { name: "Graphite" }));
 
     await waitFor(() => expect(screen.getByPlaceholderText("Search document")).toHaveValue("heading"));
-    expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(markdownCalls);
+    expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(afterMarkdown);
+
+    fireEvent.click(screen.getByTitle("Settings and app info, mdview 1.2.4"));
+    fireEvent.click(screen.getByRole("button", { name: /Remote Images/ }));
+    await waitFor(() => expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(afterMarkdown + 1));
+    expect(renderMarkdownDocumentMock).toHaveBeenLastCalledWith("# First heading", { allowRemoteImages: true });
   });
 
   it("resolves ordinary relative links and opens them through the existing tab path", async () => {
@@ -355,7 +364,7 @@ describe("App desktop layout", () => {
 
     render(<App />);
 
-    expect(await screen.findByTestId("preview")).toHaveTextContent("# Opened from Files");
+    await waitFor(() => expect(screen.getByTestId("preview")).toHaveTextContent("# Opened from Files"));
     expect(readMarkdownFile).toHaveBeenCalledWith("/home/naki/notes/launch.md");
     expect(screen.getByTestId("window-file-title")).toHaveTextContent("launch.md");
   });
