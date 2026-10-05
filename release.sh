@@ -27,9 +27,8 @@ usage() {
     cat <<EOF
 Usage: ./release.sh --version vX.Y.Z [--dry-run]
 
-Creates and pushes an annotated version tag. GitHub Actions builds the native
-Tauri installers on Linux, Windows, and macOS, then publishes them to the GitHub
-Release created for the tag.
+Pushes a prepared X.Y.Z branch and opens its release PR. After merge, GitHub
+Actions validates and builds all platforms before creating the immutable tag.
 
 Options:
   --version vX.Y.Z  Release version tag. Must match package and Tauri metadata.
@@ -80,31 +79,6 @@ validate_version() {
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Invalid version '$tag' (expected vX.Y.Z)"
 }
 
-json_version() {
-    local path="$1"
-    node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version)" "$path"
-}
-
-toml_version() {
-    local path="$1"
-    sed -n 's/^version = "\(.*\)"/\1/p' "$path" | head -n 1
-}
-
-require_matching_versions() {
-    local version_without_v="${VERSION#v}"
-    local package_version
-    local tauri_version
-    local cargo_version
-
-    package_version="$(json_version package.json)"
-    tauri_version="$(json_version src-tauri/tauri.conf.json)"
-    cargo_version="$(toml_version src-tauri/Cargo.toml)"
-
-    [[ "$package_version" == "$version_without_v" ]] || fail "package.json is $package_version, expected $version_without_v"
-    [[ "$tauri_version" == "$version_without_v" ]] || fail "src-tauri/tauri.conf.json is $tauri_version, expected $version_without_v"
-    [[ "$cargo_version" == "$version_without_v" ]] || fail "src-tauri/Cargo.toml is $cargo_version, expected $version_without_v"
-}
-
 main() {
     parse_args "$@"
 
@@ -113,11 +87,13 @@ main() {
 
     require_cmd git
     require_cmd node
+    require_cmd gh
 
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "Not inside a git repository"
 
     require_clean_git
-    require_matching_versions
+    [[ "$(git branch --show-current)" == "${VERSION#v}" ]] || fail "Run from the prepared ${VERSION#v} release branch."
+    node scripts/validate-release-version.mjs --tag "$VERSION"
 
     if git rev-parse "$VERSION" >/dev/null 2>&1; then
         fail "Tag already exists locally: $VERSION"
@@ -127,10 +103,10 @@ main() {
         fail "Tag already exists on origin: $VERSION"
     fi
 
-    log "Creating release tag $VERSION"
-    run_cmd git tag -a "$VERSION" -m "Release $VERSION"
-    run_cmd git push origin "$VERSION"
-    log "Pushed $VERSION. GitHub Actions will publish installer assets to the release."
+    run_cmd git push -u origin "${VERSION#v}"
+    run_cmd gh pr create --base main --head "${VERSION#v}" --title "release: $VERSION" \
+        --body "Release $VERSION from the prepared version sources and CHANGELOG.md. Native validation and builds must pass before tagging."
+    log "Merge the release PR after required CI passes to build and publish $VERSION."
 }
 
 main "$@"

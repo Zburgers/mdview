@@ -62,6 +62,11 @@ test("version bump updates every release source", async () => {
   assert.match(await readFile(path.join(temp, "src-tauri/Cargo.lock"), "utf8"), /name = "mdview"\nversion = "1\.2\.5"/);
   assert.match(await readFile(path.join(temp, "CHANGELOG.md"), "utf8"), /## \[1\.2\.5\]/);
 
+  const sourcePaths = ["package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "CHANGELOG.md"];
+  const prepared = await Promise.all(sourcePaths.map((file) => readFile(path.join(temp, file), "utf8")));
+  await exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.5", "--root", temp], { cwd: root });
+  assert.deepEqual(await Promise.all(sourcePaths.map((file) => readFile(path.join(temp, file), "utf8"))), prepared);
+
   await assert.rejects(
     exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.4", "--root", temp], { cwd: root }),
     /Cannot release 1\.2\.4 over current version 1\.2\.5/
@@ -73,6 +78,11 @@ test("updater manifest requires matching tag and signed assets", async () => {
   await mkdir(path.join(temp, "assets"));
   await writeFile(path.join(temp, "assets", "mdview.AppImage"), "bundle");
   await writeFile(path.join(temp, "assets", "mdview.AppImage.sig"), "signature\n");
+  await writeFile(path.join(temp, "assets", "mdview.exe"), "bundle");
+  await writeFile(path.join(temp, "assets", "mdview.exe.sig"), "windows-signature\n");
+  await writeFile(path.join(temp, "assets", "mdview.app.tar.gz"), "bundle");
+  await writeFile(path.join(temp, "assets", "mdview.app.tar.gz.sig"), "mac-signature\n");
+  await writeFile(path.join(temp, "assets", "updater-target-macos.txt"), "darwin-aarch64\n");
   const output = path.join(temp, "latest.json");
 
   await exec(process.execPath, [
@@ -82,9 +92,19 @@ test("updater manifest requires matching tag and signed assets", async () => {
   const manifest = JSON.parse(await readFile(output, "utf8"));
   assert.equal(manifest.version, "1.2.4");
   assert.equal(manifest.platforms["linux-x86_64"].signature, "signature");
+  assert.equal(manifest.platforms["windows-x86_64"].signature, "windows-signature");
+  assert.equal(manifest.platforms["darwin-aarch64"].signature, "mac-signature");
   assert.equal(
     manifest.platforms["linux-x86_64"].url,
     "https://github.com/Zburgers/mdview/releases/download/v1.2.4/mdview.AppImage"
+  );
+  assert.equal(
+    manifest.platforms["windows-x86_64"].url,
+    "https://github.com/Zburgers/mdview/releases/download/v1.2.4/mdview.exe"
+  );
+  assert.equal(
+    manifest.platforms["darwin-aarch64"].url,
+    "https://github.com/Zburgers/mdview/releases/download/v1.2.4/mdview.app.tar.gz"
   );
 
   await assert.rejects(
@@ -96,38 +116,56 @@ test("updater manifest requires matching tag and signed assets", async () => {
   );
 });
 
-test("release workflow validates before bundling and publishes tags only", async () => {
+test("release workflow validates code before building the version candidate", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-build.yml"), "utf8");
+  assert.match(workflow, /workflow_call:[\s\S]*?candidate_sha:[\s\S]*?candidate_version:[\s\S]*?candidate_tree_sha:/);
+  assert.match(workflow, /validate:\s*\n\s*name: Validate\s*\n\s*if: inputs\.candidate_sha == ''/);
+  assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?if: inputs\.candidate_sha != ''/);
+  assert.match(workflow, /Prepare and verify candidate tree\s*\n\s*shell: bash[\s\S]*?EXPECTED_TREE[\s\S]*?git write-tree/);
+  assert.match(workflow, /Build Linux bundles[\s\S]*?Build Windows and macOS bundles/);
+  assert.match(workflow, /prepare-release-assets:[\s\S]*?Automatically released from merged version branch/);
+  assert.match(workflow, /create-updater-manifest\.mjs[\s\S]*?validate-release-version\.mjs --tag "v\$\{VERSION\}" --latest latest\.json/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(workflow, /node --test tests\/release-integrity\.test\.mjs/);
-  assert.match(workflow, /actions\/checkout@v4[\s\S]*?fetch-depth: 0/);
-  assert.match(workflow, /Require tagged release commit on main[\s\S]*?git merge-base --is-ancestor "\$\{GITHUB_SHA\}" origin\/main[\s\S]*?bundle:/);
-  assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?needs: validate/);
-  assert.match(workflow, /bundle:[\s\S]*?if:\s*>-\s*\n\s*startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  assert.doesNotMatch(workflow, /github\.event_name == 'workflow_dispatch'/);
-  assert.match(workflow, /publish-release:[\s\S]*?if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  assert.match(workflow, /Refuse to mutate a release from another commit/);
-  assert.match(workflow, /refs\/tags\/\$\{GITHUB_REF_NAME\}" "refs\/tags\/\$\{GITHUB_REF_NAME\}\^\{\}" \| node scripts\/resolve-release-tag\.mjs/);
-  assert.equal((workflow.match(/node scripts\/resolve-release-tag\.mjs/g) ?? []).length, 2);
-  assert.match(workflow, /cancel-in-progress: \$\{\{ !startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/);
-  assert.doesNotMatch(workflow, /publish_release/);
+  assert.match(workflow, /Validate prepared release branch version[\s\S]*?validate-release-version\.mjs --tag "v\$\{HEAD_REF\}"/);
+  assert.match(workflow, /cancel-in-progress: \$\{\{ inputs\.candidate_sha == '' \}\}/);
+  assert.doesNotMatch(workflow, /workflow_dispatch:|tags:\s*\n\s*- "v\*"/);
+  assert.doesNotMatch(workflow, /publish-release:/);
+
+  const uses = [...workflow.matchAll(/^\s+- uses: ([^\s]+)(?:\s+#.*)?$/gm)].map((match) => match[1]);
+  assert.ok(uses.length > 0);
+  assert.ok(uses.every((action) => /@[0-9a-f]{40}$/.test(action)), `Unpinned actions: ${uses.filter((action) => !/@[0-9a-f]{40}$/.test(action)).join(", ")}`);
 });
 
-test("merged version branches prepare and dispatch a tagged release", async () => {
+test("merged version branches validate and build before tagging protected main", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-on-merge.yml"), "utf8");
   assert.match(workflow, /types: \[closed\]/);
   assert.match(workflow, /github\.event\.pull_request\.merged == true/);
-  assert.ok(workflow.includes('if [[ "${HEAD_REF}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]'));
-  assert.match(workflow, /for attempt in 1 2 3; do/);
+  assert.match(workflow, /validate-candidate:[\s\S]*?build-candidate:[\s\S]*?needs: validate-candidate[\s\S]*?create-release-source:[\s\S]*?needs: \[validate-candidate, build-candidate\]/);
+  assert.ok(workflow.includes('if [[ ! "${HEAD_REF}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]'));
   assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{base_sha\}"/);
   assert.match(workflow, /git checkout --detach "\$\{base_sha\}"/);
   assert.match(workflow, /node scripts\/bump-version\.mjs --version "\$\{VERSION\}"/);
-  assert.match(workflow, /fetch first\|non-fast-forward/);
-  assert.match(workflow, /permission\|denied\|protected branch/);
-  assert.match(workflow, /git merge-base --is-ancestor "\$\{MERGE_SHA\}" "\$\{next_base\}"/);
   assert.match(workflow, /git ls-remote origin "refs\/tags\/\$\{TAG\}"/);
-  assert.match(workflow, /git push --porcelain --atomic origin HEAD:main "\$\{TAG\}"/);
-  assert.match(workflow, /gh workflow run release-build\.yml .*--ref "\$\{TAG\}"/);
-  assert.match(workflow, /actions: write/);
+  assert.match(workflow, /push --porcelain origin "\$\{TAG\}"/);
+  assert.doesNotMatch(workflow, /HEAD:main|git commit -m/);
+  assert.match(workflow, /git diff --cached --quiet[\s\S]*?Commit version source updates in the release PR/);
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/release-build\.yml/);
+  assert.match(workflow, /Validate prepared release metadata[\s\S]*?validate-release-version\.mjs --tag "\$\{TAG\}" --latest release-assets\/latest\.json/);
+  assert.match(workflow, /actions\/download-artifact@[0-9a-f]{40}/);
+  assert.match(workflow, /softprops\/action-gh-release@[0-9a-f]{40}/);
+  assert.ok(workflow.indexOf("needs: [validate-candidate, build-candidate]") < workflow.indexOf('git tag -a "${TAG}"'));
+  assert.ok(workflow.indexOf('git tag -a "${TAG}"') < workflow.indexOf("  publish-release:"));
+  assert.doesNotMatch(workflow, /gh workflow run/);
+  assert.doesNotMatch(workflow, /actions: write/);
+
+  const releaseScript = await readFile(path.join(root, "release.sh"), "utf8");
+  assert.match(releaseScript, /gh pr create --base main/);
+  assert.doesNotMatch(releaseScript, /git tag -a|git push origin "\$VERSION"/);
+
+  const uses = [...workflow.matchAll(/^\s+- uses: ([^\s]+)(?:\s+#.*)?$/gm)].map((match) => match[1]);
+  assert.ok(uses.length > 0);
+  assert.ok(uses.every((action) => /@[0-9a-f]{40}$/.test(action)), `Unpinned actions: ${uses.filter((action) => !/@[0-9a-f]{40}$/.test(action)).join(", ")}`);
 });
 
 test("1.2.5 changelog entry produces release-valid notes", async () => {

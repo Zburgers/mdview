@@ -216,19 +216,24 @@ which invokes Tauri to build AppImage, `.deb`, and `.rpm` bundles, then checks
 that all three expected artifacts were created.
 
 Branch and pull-request runs validate the app. A same-repository release branch
-named `X.Y.Z`, such as `1.2.5`, is released when its pull request is merged into
-`main`: GitHub Actions updates the version sources, creates the matching `vX.Y.Z`
-tag, and dispatches the native bundle and publication workflow. Ordinary feature
-branches do not publish releases.
+named `X.Y.Z`, such as `1.2.6`, is released when its pull request is merged into
+`main`. Prepare and commit its versions with
+`node scripts/bump-version.mjs --version X.Y.Z`, and add a substantive changelog
+entry. GitHub Actions validates the merged source, builds every native bundle,
+and checks signed updater metadata before creating `vX.Y.Z` and publishing the
+tested assets. Ordinary feature branches do not publish releases.
 
-For a manual release or recovery, use a clean, committed tree:
+To open the release PR from a clean, committed `X.Y.Z` branch:
 
 ```bash
-./release.sh --version v1.2.3
+./release.sh --version v1.2.6
 ```
 
-The script validates all application version sources and pushes an annotated tag;
-the tag workflow then builds and attaches the installers to the GitHub Release.
+The script validates application versions, pushes the release branch, and opens
+its PR. Merge it after the required `Validate` check passes. The release workflow
+does not push source commits to protected `main`. For recovery before tagging,
+fix the release branch and merge a new PR; after tagging, rerun only the failed
+publication job so the existing tag is preserved.
 
 ## Legacy Python GTK App
 
