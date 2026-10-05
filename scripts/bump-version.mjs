@@ -27,16 +27,16 @@ tauriConfig.version = version;
 await writeFile(tauriPath, `${JSON.stringify(tauriConfig, null, 2)}\n`);
 
 const cargoToml = await readFile(cargoPath, "utf8");
+if (!/^(version = ").*(")$/m.test(cargoToml)) throw new Error("Could not find Cargo package version");
 const updatedCargoToml = cargoToml.replace(/^(version = ").*(")$/m, `$1${version}$2`);
-if (updatedCargoToml === cargoToml) throw new Error("Could not find Cargo package version");
 await writeFile(cargoPath, updatedCargoToml);
 
 const cargoLock = await readFile(lockPath, "utf8");
+if (!/(\[\[package\]\]\nname = "mdview"\nversion = ").*(")/.test(cargoLock)) throw new Error("Could not find mdview Cargo.lock package");
 const updatedCargoLock = cargoLock.replace(
   /(\[\[package\]\]\nname = "mdview"\nversion = ").*(")/,
   `$1${version}$2`
 );
-if (updatedCargoLock === cargoLock) throw new Error("Could not find mdview Cargo.lock package");
 await writeFile(lockPath, updatedCargoLock);
 
 const changelog = await readFile(changelogPath, "utf8");

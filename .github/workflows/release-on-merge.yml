@@ -147,7 +147,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - name: Prepare tested version commit and immutable tag
+      - name: Verify tested release source and prepare immutable tag
         env:
           VERSION: ${{ needs.validate-candidate.outputs.version }}
           TAG: ${{ needs.validate-candidate.outputs.tag }}
@@ -173,8 +173,6 @@ jobs:
 
           node scripts/bump-version.mjs --version "${VERSION}"
           node scripts/validate-release-version.mjs --tag "${TAG}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
           git diff --cached --check
           candidate_tree="$(git write-tree)"
@@ -183,10 +181,13 @@ jobs:
             exit 1
           fi
           if ! git diff --cached --quiet; then
-            git commit -m "release: ${TAG}"
+            echo "Commit version source updates in the release PR before merging." >&2
+            exit 1
           fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "Release ${TAG}"
-      - name: Push tested source and tag atomically
+      - name: Push tested immutable tag
         id: push
         env:
           GH_TOKEN: ${{ github.token }}
@@ -195,7 +196,7 @@ jobs:
         run: |
           auth_header="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
           git -c http.extraheader="AUTHORIZATION: basic ${auth_header}" \
-            push --porcelain --atomic origin HEAD:main "${TAG}"
+            push --porcelain origin "${TAG}"
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   publish-release:
