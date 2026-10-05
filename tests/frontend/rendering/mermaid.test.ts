@@ -74,4 +74,34 @@ describe("generic Mermaid enhancement", () => {
     expect(root.querySelectorAll("p")[1]?.textContent).toBe("after");
     cleanup();
   });
+
+  it("reports a failed renderer load in each Mermaid block", async () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<pre><code class="language-mermaid">flowchart LR\nA --&gt; B</code></pre><pre><code class="language-mermaid">sequenceDiagram</code></pre>';
+    document.body.append(root);
+
+    const cleanup = enhanceMermaid(root, "light", false, async () => { throw new Error("chunk load failed"); });
+    await waitFor(() => expect(root.querySelectorAll(".mermaid-error")).toHaveLength(2));
+
+    expect(root.textContent).toContain("Mermaid renderer could not be loaded.");
+    expect(render).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it("queries the current Preview subtree after the async module load", async () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<pre><code class="language-mermaid">flowchart LR\nOld --&gt; Diagram</code></pre>';
+    document.body.append(root);
+
+    let resolveModule!: (module: typeof import("mermaid")) => void;
+    const load = () => new Promise<typeof import("mermaid")>((resolve) => { resolveModule = resolve; });
+    render.mockResolvedValue({ svg: "<svg><text>current</text></svg>" });
+    const cleanup = enhanceMermaid(root, "light", false, load);
+    root.innerHTML = '<pre><code class="language-mermaid">sequenceDiagram\nReader-&gt;&gt;mdview: Current</code></pre>';
+    resolveModule({ default: { initialize, render } } as unknown as typeof import("mermaid"));
+
+    await waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    expect(render.mock.calls[0]?.[1]).toContain("Current");
+    cleanup();
+  });
 });

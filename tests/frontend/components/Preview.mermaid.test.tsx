@@ -33,7 +33,7 @@ afterEach(() => {
 describe("Preview Mermaid enhancement", () => {
   it("renders fenced diagrams strictly and sanitizes generated SVG", async () => {
     renderMermaid.mockResolvedValue({ svg: '<svg><script>alert(1)</script><text>safe</text></svg>' });
-    const result = ready('<p>before</p><pre><code class="language-mermaid">flowchart LR\nA --&gt; B</code></pre><p>after</p>');
+    const result = ready('<p>before</p><pre><code class="language-mermaid">flowchart LR\nA --&gt; B</code></pre><pre><code class="language-javascript">const answer = 42;</code></pre><p>after</p>');
     const view = render(<Preview renderState={result} filePath={null} theme="light" searchQuery="" />);
 
     await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
@@ -44,6 +44,11 @@ describe("Preview Mermaid enhancement", () => {
     });
     expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, theme: "default" }));
     expect(sanitize).toHaveBeenCalledWith('<svg><script>alert(1)</script><text>safe</text></svg>', { allowRemoteImages: false });
+
+    view.rerender(<Preview renderState={result} filePath={null} theme="light" searchQuery="changed" />);
+    expect(view.container.querySelector(".diagram-viewer-content svg")).toBeInTheDocument();
+    expect(view.container.querySelector(".code-frame .code-language")).toHaveTextContent("javascript");
+    expect(renderMermaid).toHaveBeenCalledTimes(1);
 
     view.rerender(<Preview renderState={result} filePath={null} theme="dark" searchQuery="changed" />);
     await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(2));

@@ -64,6 +64,7 @@ export function Preview({
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const result: RenderResult | null = renderState.status === "success" ? renderState.result : null;
   const html = useMemo(() => result ? prepareMarkdownImageSources(result.html) : "", [result]);
+  const htmlContent = useMemo(() => ({ __html: html }), [html]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -206,7 +207,7 @@ export function Preview({
           if (anchor) void handleLink(anchor);
         }}
         onContextMenu={(event) => { interceptLinkEvent(event); }}
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={htmlContent}
       />
       <ImageLightbox
         open={lightbox !== null}
