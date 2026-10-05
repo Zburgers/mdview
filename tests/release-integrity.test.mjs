@@ -62,6 +62,11 @@ test("version bump updates every release source", async () => {
   assert.match(await readFile(path.join(temp, "src-tauri/Cargo.lock"), "utf8"), /name = "mdview"\nversion = "1\.2\.5"/);
   assert.match(await readFile(path.join(temp, "CHANGELOG.md"), "utf8"), /## \[1\.2\.5\]/);
 
+  const sourcePaths = ["package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock", "CHANGELOG.md"];
+  const prepared = await Promise.all(sourcePaths.map((file) => readFile(path.join(temp, file), "utf8")));
+  await exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.5", "--root", temp], { cwd: root });
+  assert.deepEqual(await Promise.all(sourcePaths.map((file) => readFile(path.join(temp, file), "utf8"))), prepared);
+
   await assert.rejects(
     exec(process.execPath, ["scripts/bump-version.mjs", "--version", "1.2.4", "--root", temp], { cwd: root }),
     /Cannot release 1\.2\.4 over current version 1\.2\.5/
@@ -116,13 +121,13 @@ test("release workflow validates code before building the version candidate", as
   assert.match(workflow, /workflow_call:[\s\S]*?candidate_sha:[\s\S]*?candidate_version:[\s\S]*?candidate_tree_sha:/);
   assert.match(workflow, /validate:\s*\n\s*name: Validate\s*\n\s*if: inputs\.candidate_sha == ''/);
   assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?if: inputs\.candidate_sha != ''/);
-  assert.match(workflow, /Prepare and verify candidate tree[\s\S]*?EXPECTED_TREE[\s\S]*?git write-tree/);
+  assert.match(workflow, /Prepare and verify candidate tree\s*\n\s*shell: bash[\s\S]*?EXPECTED_TREE[\s\S]*?git write-tree/);
   assert.match(workflow, /Build Linux bundles[\s\S]*?Build Windows and macOS bundles/);
   assert.match(workflow, /prepare-release-assets:[\s\S]*?Automatically released from merged version branch/);
   assert.match(workflow, /create-updater-manifest\.mjs[\s\S]*?validate-release-version\.mjs --tag "v\$\{VERSION\}" --latest latest\.json/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(workflow, /node --test tests\/release-integrity\.test\.mjs/);
-  assert.match(workflow, /Simulate merged release version/);
+  assert.match(workflow, /Validate prepared release branch version[\s\S]*?validate-release-version\.mjs --tag "v\$\{HEAD_REF\}"/);
   assert.match(workflow, /cancel-in-progress: \$\{\{ inputs\.candidate_sha == '' \}\}/);
   assert.doesNotMatch(workflow, /workflow_dispatch:|tags:\s*\n\s*- "v\*"/);
   assert.doesNotMatch(workflow, /publish-release:/);
@@ -132,7 +137,7 @@ test("release workflow validates code before building the version candidate", as
   assert.ok(uses.every((action) => /@[0-9a-f]{40}$/.test(action)), `Unpinned actions: ${uses.filter((action) => !/@[0-9a-f]{40}$/.test(action)).join(", ")}`);
 });
 
-test("merged version branches validate and build before atomically creating a tag", async () => {
+test("merged version branches validate and build before tagging protected main", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-on-merge.yml"), "utf8");
   assert.match(workflow, /types: \[closed\]/);
   assert.match(workflow, /github\.event\.pull_request\.merged == true/);
@@ -142,7 +147,9 @@ test("merged version branches validate and build before atomically creating a ta
   assert.match(workflow, /git checkout --detach "\$\{base_sha\}"/);
   assert.match(workflow, /node scripts\/bump-version\.mjs --version "\$\{VERSION\}"/);
   assert.match(workflow, /git ls-remote origin "refs\/tags\/\$\{TAG\}"/);
-  assert.match(workflow, /push --porcelain --atomic origin HEAD:main "\$\{TAG\}"/);
+  assert.match(workflow, /push --porcelain origin "\$\{TAG\}"/);
+  assert.doesNotMatch(workflow, /HEAD:main|git commit -m/);
+  assert.match(workflow, /git diff --cached --quiet[\s\S]*?Commit version source updates in the release PR/);
   assert.match(workflow, /uses: \.\/\.github\/workflows\/release-build\.yml/);
   assert.match(workflow, /Validate prepared release metadata[\s\S]*?validate-release-version\.mjs --tag "\$\{TAG\}" --latest release-assets\/latest\.json/);
   assert.match(workflow, /actions\/download-artifact@[0-9a-f]{40}/);

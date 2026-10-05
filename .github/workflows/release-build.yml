@@ -61,14 +61,14 @@ jobs:
             patchelf
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-      - name: Simulate merged release version
+      - name: Validate prepared release branch version
         if: github.event_name == 'pull_request'
         env:
           HEAD_REF: ${{ github.head_ref }}
         shell: bash
         run: |
           if [[ "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            node scripts/bump-version.mjs --version "${HEAD_REF}"
+            node scripts/validate-release-version.mjs --tag "v${HEAD_REF}"
           fi
       - name: Validate release version sources
         run: node scripts/validate-release-version.mjs
@@ -124,6 +124,7 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - name: Prepare and verify candidate tree
+        shell: bash
         env:
           VERSION: ${{ inputs.candidate_version }}
           EXPECTED_TREE: ${{ inputs.candidate_tree_sha }}

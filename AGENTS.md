@@ -74,6 +74,6 @@ Default to `pnpm tauri dev` when the user wants to test the real application, be
 ## Release handling
 
 - Resolve the target release version from the user's explicit instruction. If the user has not supplied one, ask before bumping, tagging, or pushing a release.
-- Treat a same-repository branch named `X.Y.Z` as an explicit release branch only when the user is merging it as a release. Merging that branch into `main` triggers `.github/workflows/release-on-merge.yml`, which updates the version sources, creates `vX.Y.Z`, and dispatches the validated native release build.
+- Treat a same-repository branch named `X.Y.Z` as an explicit release branch only when the user is merging it as a release. Prepare and commit the version sources with `node scripts/bump-version.mjs --version X.Y.Z` and add release notes before merging. Merging that branch into `main` triggers `.github/workflows/release-on-merge.yml`, which validates the merged source and all native bundles before creating `vX.Y.Z` and publishing the tested assets. Release automation does not push source changes to protected `main`.
 - For manual releases, use `./release.sh --version vX.Y.Z`; it validates `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml` before pushing the tag.
 - Do not bump or tag ordinary feature branches. Preserve any repository-specific release or push instruction that is stricter than these defaults.
