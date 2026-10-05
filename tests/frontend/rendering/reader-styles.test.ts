@@ -50,6 +50,21 @@ describe("reader CSS contract", () => {
     expect(css).toContain(".markdown-body .table-scroll th[align=\"center\"]");
   });
 
+  it("docks Outline in a reserved desktop track and overlays it only at the narrow breakpoint", () => {
+    const dock = css.match(/\.workspace\.mode-reader:has\(> \.outline-panel:not\(\.is-overlay\)\)\s*\{([^}]*)\}/s)?.[1] ?? "";
+    const splitDock = css.match(/\.workspace\.mode-split:has\(> \.outline-panel:not\(\.is-overlay\)\)\s*\{([^}]*)\}/s)?.[1] ?? "";
+    const basePanel = css.match(/\.outline-panel\s*\{([^}]*)\}/s)?.[1] ?? "";
+    const narrowPanel = css.match(/@media \(max-width: 760px\)[\s\S]*?\.outline-panel\.is-overlay\s*\{([^}]*)\}/s)?.[1] ?? "";
+
+    expect(css).toMatch(/\.workspace\s*\{[^}]*position:\s*relative/s);
+    expect(dock).toContain("grid-template-columns: clamp(220px, 24vw, 280px) minmax(0, 1fr)");
+    expect(splitDock).toContain("minmax(320px, 43fr) minmax(0, 57fr)");
+    expect(basePanel).not.toContain("position: absolute");
+    expect(narrowPanel).toContain("position: absolute");
+    expect(narrowPanel).toContain("width: min(86vw, 320px)");
+    expect(narrowPanel).toContain("padding-top: 12px");
+  });
+
   it("hides reader controls in print while retaining diagram and table content", () => {
     expect(css).toMatch(/@media print\s*\{[\s\S]*?\.outline-toggle,[\s\S]*?\.diagram-viewer-controls[\s\S]*?display:\s*none !important/s);
     expect(css).toMatch(/@media print\s*\{[\s\S]*?\.diagram-viewer-content,[\s\S]*?overflow:\s*visible/s);
