@@ -1756,6 +1756,7 @@ select:focus-visible {
 
   .toolbar,
   .window-titlebar,
+  .tab-strip,
   .status-stack,
   .status-bar,
   .source-wrap,
@@ -1765,11 +1766,23 @@ select:focus-visible {
     display: none !important;
   }
 
+  html,
+  body,
+  #root {
+    width: auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
   .app-shell,
   .workspace,
   .preview-scroll {
     display: block;
+    width: auto;
+    height: auto;
     min-height: auto;
+    max-height: none;
     overflow: visible;
   }
 
@@ -1780,6 +1793,7 @@ select:focus-visible {
   .preview {
     width: auto;
     max-width: none;
+    min-height: 0;
     margin: 0;
     padding: 0;
   }

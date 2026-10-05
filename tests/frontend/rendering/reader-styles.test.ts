@@ -69,4 +69,10 @@ describe("reader CSS contract", () => {
     expect(css).toMatch(/@media print\s*\{[\s\S]*?\.outline-toggle,[\s\S]*?\.diagram-viewer-controls[\s\S]*?display:\s*none !important/s);
     expect(css).toMatch(/@media print\s*\{[\s\S]*?\.diagram-viewer-content,[\s\S]*?overflow:\s*visible/s);
   });
+
+  it("releases every viewport-height ancestor and hides tabs for multipage print", () => {
+    expect(css).toMatch(/@media print\s*\{[\s\S]*?html,\s*body,\s*#root\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s);
+    expect(css).toMatch(/@media print\s*\{[\s\S]*?\.app-shell,\s*\.workspace,\s*\.preview-scroll\s*\{[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s);
+    expect(css).toMatch(/@media print\s*\{[\s\S]*?\.toolbar,\s*\.window-titlebar,\s*\.tab-strip,[\s\S]*?display:\s*none !important;/s);
+  });
 });
