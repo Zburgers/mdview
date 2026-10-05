@@ -1817,3 +1817,396 @@ select:focus-visible {
     margin: 1.5cm;
   }
 }
+
+/* Reader enhancements */
+.markdown-body :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 1.25rem;
+  line-height: 1.28;
+  text-wrap: balance;
+}
+
+.markdown-body h1 + *,
+.markdown-body h2 + *,
+.markdown-body h3 + * {
+  margin-top: 0.45em;
+}
+
+.markdown-body :is(ul, ol) {
+  padding-inline-start: 1.6em;
+}
+
+.markdown-body li + li {
+  margin-top: 0.24em;
+}
+
+.markdown-body pre {
+  max-width: 100%;
+  margin: 0;
+  white-space: pre;
+}
+
+.markdown-body .code-frame {
+  max-width: 72ch;
+  margin: 0.9em 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--code-bg);
+}
+
+.markdown-body .code-toolbar,
+.diagram-viewer-controls {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel), var(--code-bg) 45%);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.76rem;
+}
+
+.code-language {
+  margin-right: auto;
+  color: var(--muted);
+  text-transform: lowercase;
+}
+
+.code-copy,
+.diagram-viewer-controls button,
+.image-lightbox-controls button,
+.outline-panel button,
+.outline-toggle {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.code-copy-status,
+.diagram-copy-status {
+  color: var(--muted);
+}
+
+.markdown-body .code-frame pre {
+  overflow: auto;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
+  scrollbar-gutter: stable;
+}
+
+.markdown-body .code-frame code {
+  display: block;
+  min-width: max-content;
+  line-height: 1.58;
+}
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-built_in {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.markdown-body .hljs-string,
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-template-tag {
+  color: #16a34a;
+}
+
+.markdown-body .hljs-number,
+.markdown-body .hljs-symbol,
+.markdown-body .hljs-bullet {
+  color: #d97706;
+}
+
+.markdown-body .table-scroll {
+  width: min(100%, 72ch);
+  max-width: 100%;
+  margin: 0.9em 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.markdown-body .table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.markdown-body .table-scroll th {
+  background: color-mix(in srgb, var(--panel-soft), var(--code-bg) 35%);
+  font-weight: 700;
+}
+
+.markdown-body .table-scroll th,
+.markdown-body .table-scroll td {
+  min-width: 7rem;
+  padding: 9px 12px;
+  border-width: 0 1px 1px 0;
+  vertical-align: top;
+}
+
+.markdown-body .table-scroll tr:last-child > * {
+  border-bottom: 0;
+}
+
+.markdown-body .table-scroll tr > *:last-child {
+  border-right: 0;
+}
+
+.markdown-body .table-scroll th[align="center"],
+.markdown-body .table-scroll td[align="center"] { text-align: center; }
+.markdown-body .table-scroll th[align="right"],
+.markdown-body .table-scroll td[align="right"] { text-align: right; }
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.markdown-image-placeholder {
+  display: inline-block;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.markdown-body .callout {
+  max-width: 72ch;
+  margin: 1.15em 0;
+  border-radius: 9px;
+}
+
+.markdown-body .callout .callout {
+  margin: 0.8em 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border), transparent 30%);
+}
+
+.markdown-body .callout-title {
+  line-height: 1.35;
+}
+
+.markdown-body .callout-body > :first-child { margin-top: 0; }
+.markdown-body .callout-body > :last-child { margin-bottom: 0; }
+
+.markdown-body blockquote {
+  max-width: 72ch;
+  padding-block: 2px;
+}
+
+.markdown-body .footnotes,
+.markdown-body section.footnotes {
+  max-width: 72ch;
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.markdown-body .footnotes ol { padding-inline-start: 1.8em; }
+.markdown-body .footnotes li { padding-inline-start: 0.35em; }
+.markdown-body .footnote-ref,
+.markdown-body .footnote-backref { color: var(--accent-strong); }
+
+.mermaid-host,
+.diagram-viewer,
+.diagram-viewer-content {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mermaid-host {
+  display: block;
+  margin: 1.2em 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.diagram-viewer-content {
+  max-height: 72vh;
+  overflow: auto;
+  padding: 16px;
+}
+
+.diagram-viewer-content svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.diagram-viewer-backdrop,
+.image-lightbox-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 3vh 3vw;
+  background: rgb(0 0 0 / 72%);
+}
+
+.diagram-viewer-dialog,
+.image-lightbox {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(96vw, 1500px);
+  height: min(94vh, 1100px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.diagram-viewer-dialog .diagram-viewer-controls,
+.image-lightbox-controls {
+  justify-content: flex-end;
+}
+
+.diagram-viewer-dialog .diagram-viewer-content {
+  max-height: none;
+  height: 100%;
+}
+
+.diagram-viewer-dialog .diagram-viewer-content svg {
+  width: max-content;
+  max-width: none;
+  height: auto;
+}
+
+.image-lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  justify-self: center;
+  align-self: center;
+  object-fit: contain;
+  overflow: auto;
+}
+
+.image-lightbox-image.is-full-size {
+  justify-self: start;
+  align-self: start;
+}
+
+.outline-toggle {
+  position: absolute;
+  z-index: 5;
+  top: 10px;
+  left: 10px;
+}
+
+.outline-panel {
+  position: absolute;
+  z-index: 6;
+  inset: 0 auto 0 0;
+  width: clamp(220px, 24vw, 280px);
+  padding: 12px;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel), transparent 3%);
+  box-shadow: var(--shadow);
+}
+
+.outline-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.outline-panel-heading h2 { margin: 0; font-size: 0.95rem; }
+.outline-empty { color: var(--muted); font-size: 0.88rem; }
+.outline-list { margin: 0; padding: 0; list-style: none; }
+.outline-list li { margin: 2px 0; }
+.outline-item {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item.is-active {
+  border-color: color-mix(in srgb, var(--accent), var(--border) 25%);
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+  color: var(--accent-strong);
+}
+
+@media (max-width: 760px) {
+  .outline-panel.is-overlay {
+    inset: 0 auto 0 0;
+    width: min(86vw, 320px);
+    border-right: 1px solid var(--border);
+  }
+}
+
+@media print {
+  .outline-toggle,
+  .outline-panel,
+  .code-toolbar,
+  .diagram-viewer-controls,
+  .diagram-copy-status,
+  .image-lightbox-backdrop,
+  .diagram-viewer-backdrop {
+    display: none !important;
+  }
+
+  .markdown-body .code-frame,
+  .markdown-body .table-scroll {
+    max-width: 100%;
+    overflow: visible;
+    border-color: #cccccc;
+    break-inside: avoid;
+  }
+
+  .markdown-body .code-frame pre {
+    overflow: visible;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .diagram-viewer-content,
+  .mermaid-host {
+    max-height: none;
+    overflow: visible;
+    break-inside: avoid;
+  }
+
+  .markdown-body .table-scroll table {
+    width: 100%;
+    table-layout: auto;
+  }
+}

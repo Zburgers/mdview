@@ -1,68 +1,68 @@
-import { render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Preview } from "../../../src/components/Preview";
+import type { MarkdownRenderState } from "../../../src/rendering/useMarkdownRender";
 
-const { mermaidInitializeMock, mermaidRenderMock } = vi.hoisted(() => ({
-  mermaidInitializeMock: vi.fn(),
-  mermaidRenderMock: vi.fn()
+const { initialize, renderMermaid, sanitize } = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  renderMermaid: vi.fn(),
+  sanitize: vi.fn((svg: string) => svg.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ""))
+}));
+vi.mock("mermaid", () => ({ default: { initialize, render: renderMermaid } }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), message: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path }));
+vi.mock("../../../src/lib/tauri", () => ({ resolveMarkdownImagePath: vi.fn() }));
+vi.mock("../../../src/lib/highlight", () => ({ highlightText: vi.fn() }));
+vi.mock("../../../src/lib/markdown", () => ({
+  containsRemoteResourceReference: (source: string) => /https?:\/\//i.test(source),
+  sanitizeMermaidSvg: sanitize
 }));
 
-vi.mock("mermaid", () => ({
-  default: {
-    initialize: mermaidInitializeMock,
-    render: mermaidRenderMock
-  }
-}));
+function ready(html: string): MarkdownRenderState {
+  return { status: "success", result: { html, headings: [], resources: [], diagnostics: [] }, error: null };
+}
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn()
-}));
+afterEach(() => {
+  cleanup();
+  initialize.mockReset();
+  renderMermaid.mockReset();
+  sanitize.mockClear();
+});
 
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: (path: string) => path
-}));
+describe("Preview Mermaid enhancement", () => {
+  it("renders fenced diagrams strictly and sanitizes generated SVG", async () => {
+    renderMermaid.mockResolvedValue({ svg: '<svg><script>alert(1)</script><text>safe</text></svg>' });
+    const result = ready('<p>before</p><pre><code class="language-mermaid">flowchart LR\nA --&gt; B</code></pre><p>after</p>');
+    const view = render(<Preview renderState={result} filePath={null} theme="light" searchQuery="" />);
 
-vi.mock("../../../src/lib/highlight", () => ({
-  highlightText: vi.fn()
-}));
+    await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(view.container.querySelector(".diagram-viewer-content svg")).toBeInTheDocument();
+      expect(view.container.innerHTML).not.toContain("<script");
+      expect(view.container.textContent).toContain("safe");
+    });
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, theme: "default" }));
+    expect(sanitize).toHaveBeenCalledWith('<svg><script>alert(1)</script><text>safe</text></svg>', { allowRemoteImages: false });
 
-describe("Preview mermaid sanitization", () => {
-  afterEach(() => {
-    mermaidInitializeMock.mockReset();
-    mermaidRenderMock.mockReset();
+    view.rerender(<Preview renderState={result} filePath={null} theme="dark" searchQuery="changed" />);
+    await waitFor(() => expect(renderMermaid).toHaveBeenCalledTimes(2));
+    expect(initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark", securityLevel: "strict" }));
   });
 
-  it("sanitizes mermaid svg output before inserting it into the preview", async () => {
-    mermaidRenderMock.mockResolvedValue({
-      svg: '<svg><script>alert(1)</script><foreignObject><div>bad</div></foreignObject><g onload="alert(1)"><a href="javascript:alert(1)">node</a><text>safe</text></g></svg>'
+  it("blocks remote-resource diagrams and confines syntax failures to their blocks", async () => {
+    renderMermaid.mockImplementation(async (_id: string, source: string) => {
+      if (source.includes("malformed")) throw new Error("bad diagram syntax");
+      return { svg: "<svg><text>ok</text></svg>" };
     });
+    const html = '<p>before</p><pre><code class="language-mermaid">flowchart LR\nA[https://example.test/pixel] --&gt; B</code></pre><pre><code class="language-mermaid">malformed</code></pre><p>after</p>';
+    const view = render(<Preview renderState={ready(html)} filePath={null} theme="light" searchQuery="" />);
 
-    const { container } = render(
-      <Preview
-        markdown={"```mermaid\ngraph TD\n  A-->B\n```"}
-        filePath={null}
-        theme="light"
-        searchQuery=""
-      />
-    );
-
-    await waitFor(() => expect(mermaidRenderMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => {
-      const host = container.querySelector(".mermaid-host");
-      expect(host?.querySelector("svg")).toBeInTheDocument();
-      expect(host?.innerHTML).not.toContain("<script");
-      expect(host?.innerHTML).not.toContain("foreignObject");
-      expect(host?.innerHTML).not.toContain("onload=");
-      expect(host?.innerHTML).not.toContain("javascript:alert");
-      expect(host?.textContent).toContain("safe");
-    });
-
-    expect(mermaidInitializeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        securityLevel: "strict",
-        startOnLoad: false,
-        theme: "default"
-      })
-    );
+    await waitFor(() => expect(view.container.querySelectorAll(".mermaid-error")).toHaveLength(2));
+    expect(renderMermaid).toHaveBeenCalledTimes(1);
+    expect(view.container.textContent).toContain("Remote resources in this Mermaid diagram were blocked.");
+    expect(view.container.textContent).toContain("bad diagram syntax");
+    expect(view.container.querySelectorAll("p")[0]?.textContent).toBe("before");
+    expect(view.container.querySelectorAll("p")[1]?.textContent).toBe("after");
   });
 });
