@@ -159,6 +159,10 @@ test("merged version branches validate and build before tagging protected main",
   assert.doesNotMatch(workflow, /gh workflow run/);
   assert.doesNotMatch(workflow, /actions: write/);
 
+  const releaseScript = await readFile(path.join(root, "release.sh"), "utf8");
+  assert.match(releaseScript, /gh pr create --base main/);
+  assert.doesNotMatch(releaseScript, /git tag -a|git push origin "\$VERSION"/);
+
   const uses = [...workflow.matchAll(/^\s+- uses: ([^\s]+)(?:\s+#.*)?$/gm)].map((match) => match[1]);
   assert.ok(uses.length > 0);
   assert.ok(uses.every((action) => /@[0-9a-f]{40}$/.test(action)), `Unpinned actions: ${uses.filter((action) => !/@[0-9a-f]{40}$/.test(action)).join(", ")}`);
