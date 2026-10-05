@@ -1122,6 +1122,30 @@ select:focus-visible {
   font-size: 16px;
 }
 
+.markdown-body .source-anchor {
+  display: block;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.markdown-body .markdown-blank-line {
+  /* Match one source row (14px font, 1.58 line height). */
+  height: 22.12px;
+  margin: 0;
+  padding: 0;
+}
+
+.markdown-body :not(.source-anchor):has(+ .source-anchor + .markdown-blank-line),
+.markdown-body li > :has(+ .markdown-blank-line) {
+  margin-bottom: 0;
+}
+
+.markdown-body .markdown-blank-line + .source-anchor + :not(.source-anchor),
+.markdown-body li > .markdown-blank-line + :not(.source-anchor) {
+  margin-top: 0;
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3 {

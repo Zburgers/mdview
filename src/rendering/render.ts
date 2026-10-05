@@ -1,6 +1,7 @@
 import { createRenderParser, createRenderSession, promoteStandaloneMermaid } from "./parser";
 import { applyPreviewElementPolicy, sanitizeMarkdownHtml } from "./security";
 import type { RenderOptions, RenderResult } from "./types";
+import { assignSourceAnchors } from "./sourceLayout";
 
 export async function renderMarkdownDocument(
   markdown: string,
@@ -8,10 +9,11 @@ export async function renderMarkdownDocument(
 ): Promise<RenderResult> {
   const session = createRenderSession(markdown);
   const parser = createRenderParser(session);
-  const parsed = await parser.parse(promoteStandaloneMermaid(markdown));
-  let html = sanitizeMarkdownHtml(addTaskListClasses(parsed, getTaskLineMap(markdown)));
+  const parsed = await parser.parse(promoteStandaloneMermaid(markdown, session.sourceLines));
+  let html = sanitizeMarkdownHtml(addTaskListClasses(parsed, session.sourceMarkerPrefix));
   for (const [placeholder, mathHtml] of session.math) html = html.replaceAll(placeholder, mathHtml);
   html = assignHeadingIds(html, session.headingMarkerPrefix, session.headings);
+  html = assignSourceAnchors(html, session.sourceMarkerPrefix);
 
   return {
     html: applyPreviewElementPolicy(html, allowRemoteImages),
@@ -84,11 +86,17 @@ export function getTaskLineMap(markdown: string): number[] {
   return map;
 }
 
-function addTaskListClasses(html: string, lineMap: number[]): string {
-  let idx = 0;
-  return html.replaceAll(/<li>(<input (?:checked="" )?disabled="" type="checkbox">)/g, (_match, input: string) => {
-    const line = lineMap[idx] ?? idx;
-    idx += 1;
-    return `<li class="task-list-item">${input.replace('type="checkbox"', `type="checkbox" data-line="${line}"`)}`;
+function addTaskListClasses(html: string, markerPrefix: string): string {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  document.querySelectorAll("li[class]").forEach((item) => {
+    if (!item.classList.contains(`${markerPrefix}TASK`)) return;
+    item.classList.remove(`${markerPrefix}TASK`);
+    const sourceClass = [...item.classList].find((name) => name.startsWith(markerPrefix));
+    const line = Number(sourceClass?.slice(markerPrefix.length));
+    const input = item.querySelector(':scope > input[disabled][type="checkbox"], :scope > p:first-child > input[disabled][type="checkbox"]');
+    if (!input || !Number.isInteger(line) || line < 0) return;
+    item.classList.add("task-list-item");
+    input.setAttribute("data-line", String(line));
   });
+  return document.body.innerHTML;
 }

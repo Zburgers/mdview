@@ -1,10 +1,11 @@
-import { Marked, type Token } from "marked";
+import { Marked, Renderer, type Token } from "marked";
 import markedFootnote from "marked-footnote";
 import { createCalloutExtension } from "./extensions/callouts";
 import { createCodeRenderer } from "./extensions/code";
 import { highlightExtension } from "./extensions/highlights";
 import { createMathExtensions } from "./extensions/math";
 import { Slugger } from "./slugger";
+import { preserveSourceLayout, sourceLayoutExtensions } from "./sourceLayout";
 import type { HeadingEntry, RenderDiagnostic, RenderResource } from "./types";
 
 export type RenderSession = {
@@ -17,6 +18,8 @@ export type RenderSession = {
   mathPrefix: string;
   nextMathIndex: number;
   headingMarkerPrefix: string;
+  sourceMarkerPrefix: string;
+  sourceLines: number[];
 };
 
 export function createRenderSession(markdown: string): RenderSession {
@@ -24,6 +27,8 @@ export function createRenderSession(markdown: string): RenderSession {
   while (markdown.includes(mathPrefix)) mathPrefix += "_";
   let headingMarkerPrefix = "__MDVIEW_HEADING_";
   while (markdown.includes(headingMarkerPrefix)) headingMarkerPrefix += "_";
+  let sourceMarkerPrefix = "__MDVIEW_SOURCE_";
+  while (markdown.includes(sourceMarkerPrefix)) sourceMarkerPrefix += "_";
   return {
     markdown,
     headings: [],
@@ -33,15 +38,25 @@ export function createRenderSession(markdown: string): RenderSession {
     slugger: new Slugger(),
     mathPrefix,
     nextMathIndex: 0,
-    headingMarkerPrefix
+    headingMarkerPrefix,
+    sourceMarkerPrefix,
+    sourceLines: []
   };
 }
 
 export function createRenderParser(session: RenderSession): Marked {
   const parser = new Marked({ async: false, breaks: true, gfm: true });
   parser.use({
+    hooks: { processAllTokens: (tokens) => preserveSourceLayout(tokens, session.sourceLines) },
     renderer: {
       ...createCodeRenderer(escapeAttribute),
+      listitem(token) {
+        const line = (token as typeof token & { sourceLine?: number }).sourceLine;
+        const html = Renderer.prototype.listitem.call(this, token);
+        if (line === undefined) return html;
+        const task = token.task ? ` ${session.sourceMarkerPrefix}TASK` : "";
+        return html.replace(/^<li>/, `<li class="${session.sourceMarkerPrefix}${line}${task}">`);
+      },
       heading(token) {
         const level = token.depth as HeadingEntry["level"];
         const rendered = this.parser.parseInline(token.tokens);
@@ -62,6 +77,7 @@ export function createRenderParser(session: RenderSession): Marked {
       }
     },
     extensions: [
+      ...sourceLayoutExtensions(session.sourceMarkerPrefix),
       createCalloutExtension(escapeAttribute),
       {
         name: "wikilink",
@@ -113,25 +129,41 @@ export function escapeAttribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-export function promoteStandaloneMermaid(markdown: string): string {
+export function promoteStandaloneMermaid(markdown: string, sourceLines?: number[]): string {
   const lines = markdown.split("\n");
   const output: string[] = [];
-  let inFence = false;
+  let fence: { marker: string; length: number } | null = null;
   for (let index = 0; index < lines.length;) {
     const line = lines[index];
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
+    const fenceMarker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence || fenceMarker) {
+      if (fence) {
+        if (fenceMarker && fenceMarker[1][0] === fence.marker &&
+            fenceMarker[1].length >= fence.length && !fenceMarker[2].trim()) fence = null;
+      } else if (fenceMarker && (fenceMarker[1][0] !== "`" || !fenceMarker[2].includes("`"))) {
+        fence = { marker: fenceMarker[1][0], length: fenceMarker[1].length };
+      }
       output.push(line);
+      sourceLines?.push(index);
       index += 1;
       continue;
     }
-    if (!inFence && isMermaidStart(line) && startsAtBlockBoundary(output)) {
+    if (isMermaidStart(line) && startsAtBlockBoundary(output)) {
       const block: string[] = [];
+      const start = index;
       while (index < lines.length && lines[index].trim() !== "") block.push(lines[index++]);
-      output.push("```mermaid", ...block, "```");
+      output.push("```mermaid");
+      sourceLines?.push(start);
+      block.forEach((line, offset) => {
+        output.push(line);
+        sourceLines?.push(start + offset);
+      });
+      output.push("```");
+      sourceLines?.push(index - 1);
       continue;
     }
     output.push(line);
+    sourceLines?.push(index);
     index += 1;
   }
   return output.join("\n");
@@ -148,7 +180,7 @@ function slugifyWikilink(value: string): string {
 }
 
 function isMermaidStart(line: string): boolean {
-  return /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph)\b/.test(line);
+  return /^ {0,3}(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph)\b/.test(line);
 }
 
 function startsAtBlockBoundary(output: string[]): boolean {

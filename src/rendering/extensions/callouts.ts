@@ -37,7 +37,7 @@ export function createCalloutExtension(escapeAttribute: (value: string) => strin
       const originalType = match[1].trim().toLowerCase();
       if (!originalType) return undefined;
       const calloutType = calloutTypes[originalType] ?? "note";
-      const body = (match[4] ?? "").replace(/^>[\t ]?/gm, "").trim();
+      const body = (match[4] ?? "").replace(/^>[\t ]?/gm, "");
       const bodyTokens = body
         ? (this as unknown as { lexer: { blockTokens: (value: string) => Token[] } }).lexer.blockTokens(body)
         : [];

@@ -9,6 +9,7 @@ import { RecentFiles, Toolbar } from "./components/Toolbar";
 import { defaultSettings } from "./lib/defaults";
 import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "./lib/markdown";
 import { useMarkdownRender } from "./rendering/useMarkdownRender";
+import { useScrollSync } from "./lib/useScrollSync";
 import {
   checkForUpdates,
   getNativeAppVersion,
@@ -121,6 +122,12 @@ export default function App() {
     [activeTabId, tabs]
   );
   const renderState = useMarkdownRender(documentState.markdown, settings.allowRemoteImages);
+  const { onSourceScroll, onPreviewScroll } = useScrollSync(
+    sourceRef,
+    previewRef,
+    settings.syncScroll && settings.viewMode === "split",
+    renderState.status === "success" ? renderState.result.html : null
+  );
   const hasUnsavedTabs = tabs.some((tab) => tab.dirty);
   const activeHeadingNavigation = pendingHeadingNavigation?.tabId === documentState.id
     ? pendingHeadingNavigation
@@ -845,20 +852,6 @@ export default function App() {
     }
   }
 
-  function onSourceScroll() {
-    if (!settings.syncScroll || settings.viewMode !== "split" || !sourceRef.current || !previewRef.current) {
-      return;
-    }
-    const source = sourceRef.current;
-    const preview = previewRef.current;
-    const sourceMax = source.scrollHeight - source.clientHeight;
-    const previewMax = preview.scrollHeight - preview.clientHeight;
-    if (sourceMax <= 0 || previewMax <= 0) {
-      return;
-    }
-    preview.scrollTop = (source.scrollTop / sourceMax) * previewMax;
-  }
-
   async function handleSaveBeforeContinuing() {
     setIsResolvingPendingAction(true);
     const pending = pendingActionRef.current;
@@ -1132,7 +1125,7 @@ export default function App() {
         )}
 
         {!emptyState && (settings.viewMode === "reader" || settings.viewMode === "split") && (
-          <div className="preview-scroll" ref={previewRef}>
+          <div className="preview-scroll" ref={previewRef} onScroll={onPreviewScroll}>
             <Preview
               renderState={renderState}
               filePath={documentState.path}
