@@ -4,20 +4,33 @@ const allowedDataImagePattern =
   /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp|x-icon|vnd\.microsoft\.icon)(?:;|,)/i;
 
 export function sanitizeMarkdownHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "a", "blockquote", "br", "code", "del", "details", "div", "em", "h1", "h2", "h3", "h4", "h5", "h6",
-      "hr", "img", "input", "li", "ol", "p", "pre", "span", "strong", "summary", "table", "tbody", "td",
-      "th", "thead", "tr", "ul"
+      "hr", "img", "input", "li", "mark", "ol", "p", "pre", "section", "span", "strong", "summary", "sup",
+      "table", "tbody", "td", "th", "thead", "tr", "ul"
     ],
     ALLOWED_ATTR: [
-      "alt", "checked", "class", "data-block", "data-callout", "data-fold", "data-heading", "data-line", "data-math",
-      "data-wikilink", "disabled", "href", "open", "rel", "src", "title", "type"
+      "align", "alt", "aria-describedby", "aria-label", "checked", "class", "data-block", "data-callout", "data-fold",
+      "data-footnote-backref", "data-footnote-ref", "data-footnotes", "data-heading", "data-language", "data-line", "data-math",
+      "data-wikilink", "disabled", "href", "id", "open", "rel", "src", "title", "type"
     ],
     ALLOW_DATA_ATTR: false,
     FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "audio", "video", "source"],
     ADD_ATTR: ["target"]
   });
+  const document = new DOMParser().parseFromString(sanitized, "text/html");
+  document.querySelectorAll("[id]").forEach((element) => {
+    if (!isMarkedFootnoteId(element)) element.removeAttribute("id");
+  });
+  return document.body.innerHTML;
+}
+
+function isMarkedFootnoteId(element: Element): boolean {
+  const id = element.getAttribute("id") ?? "";
+  if (element.matches("section.footnotes[data-footnotes] h2.sr-only#footnote-label")) return true;
+  if (element.matches("section.footnotes[data-footnotes] ol > li[id]") && /^footnote-[\w%-]+$/.test(id)) return true;
+  return element.matches('a[id][href^="#footnote-"]') && /^footnote-ref-[\w%-]+$/.test(id);
 }
 
 export function sanitizeKaTeXHtml(html: string): string {

@@ -1,6 +1,9 @@
-import katex from "katex";
 import { Marked, type Token } from "marked";
-import { sanitizeKaTeXHtml } from "./security";
+import markedFootnote from "marked-footnote";
+import { createCalloutExtension } from "./extensions/callouts";
+import { createCodeRenderer } from "./extensions/code";
+import { highlightExtension } from "./extensions/highlights";
+import { createMathExtensions } from "./extensions/math";
 import { Slugger } from "./slugger";
 import type { HeadingEntry, RenderDiagnostic, RenderResource } from "./types";
 
@@ -38,6 +41,7 @@ export function createRenderParser(session: RenderSession): Marked {
   const parser = new Marked({ async: false, breaks: true, gfm: true });
   parser.use({
     renderer: {
+      ...createCodeRenderer(escapeAttribute),
       heading(token) {
         const level = token.depth as HeadingEntry["level"];
         const rendered = this.parser.parseInline(token.tokens);
@@ -58,40 +62,7 @@ export function createRenderParser(session: RenderSession): Marked {
       }
     },
     extensions: [
-      {
-        name: "callout",
-        level: "block",
-        start(src: string) {
-          const idx = src.indexOf("> [!");
-          return idx >= 0 ? idx : undefined;
-        },
-        tokenizer(src: string) {
-          const match = /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]([+-]?)\s*(.*)\n((?:>.*\n?)*)/.exec(src);
-          if (!match) return undefined;
-          const calloutType = match[1].toLowerCase();
-          const body = (match[4] || "").replace(/^>\s?/gm, "").trim();
-          const bodyTokens = body
-            ? (this as unknown as { lexer: { blockTokens: (value: string) => Token[] } }).lexer.blockTokens(body)
-            : [];
-          return {
-            type: "callout",
-            raw: match[0],
-            calloutType,
-            fold: match[2] || "",
-            title: match[3]?.trim() || calloutType,
-            tokens: bodyTokens
-          };
-        },
-        renderer(token: unknown) {
-          const t = token as { calloutType: string; fold: string; title: string; tokens: Token[] };
-          const bodyHtml = t.tokens?.length ? this.parser.parse(t.tokens) : "";
-          if (t.fold === "+" || t.fold === "-") {
-            const open = t.fold === "+" ? " open" : "";
-            return `<details class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold="${escapeAttribute(t.fold)}"${open}><summary class="callout-title">${escapeAttribute(t.title)}</summary><div class="callout-body">${bodyHtml}</div></details>\n`;
-          }
-          return `<div class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold=""><div class="callout-title">${escapeAttribute(t.title)}</div><div class="callout-body">${bodyHtml}</div></div>\n`;
-        }
-      },
+      createCalloutExtension(escapeAttribute),
       {
         name: "wikilink",
         level: "inline",
@@ -126,42 +97,11 @@ export function createRenderParser(session: RenderSession): Marked {
           return `<a class="wikilink" data-wikilink="${escapeAttribute(t.target)}"${headingAttr}${blockAttr} href="#wikilink-${escapeAttribute(slug)}">${escapeAttribute(t.alias)}</a>`;
         }
       },
-      {
-        name: "mathInline",
-        level: "inline",
-        start(src: string) {
-          const idx = src.indexOf("$");
-          return idx >= 0 ? idx : undefined;
-        },
-        tokenizer(src: string) {
-          if (src.startsWith("$$")) return undefined;
-          const match = /^\$([^$\n]+?)\$/.exec(src);
-          if (!match || !match[1].trim()) return undefined;
-          return { type: "mathInline", raw: match[0], math: match[1] };
-        },
-        renderer(token: unknown) {
-          const math = (token as { math: string }).math;
-          return `<span class="math-inline" data-math="${escapeAttribute(math)}">${renderMathPlaceholder(session, math, false)}</span>`;
-        }
-      },
-      {
-        name: "mathBlock",
-        level: "block",
-        start(src: string) {
-          const idx = src.indexOf("$$");
-          return idx >= 0 ? idx : undefined;
-        },
-        tokenizer(src: string) {
-          const match = /^\$\$([\s\S]+?)\$\$/.exec(src);
-          return match ? { type: "mathBlock", raw: match[0], math: match[1].trim() } : undefined;
-        },
-        renderer(token: unknown) {
-          const math = (token as { math: string }).math;
-          return `<div class="math-block" data-math="${escapeAttribute(math)}">${renderMathPlaceholder(session, math, true)}</div>\n`;
-        }
-      }
+      highlightExtension,
+      ...createMathExtensions(session, escapeAttribute)
     ]
   });
+  parser.use(markedFootnote());
   return parser;
 }
 
@@ -195,13 +135,6 @@ export function promoteStandaloneMermaid(markdown: string): string {
     index += 1;
   }
   return output.join("\n");
-}
-
-function renderMathPlaceholder(session: RenderSession, math: string, displayMode: boolean): string {
-  const placeholder = `${session.mathPrefix}${session.nextMathIndex++}__`;
-  const rendered = katex.renderToString(math, { displayMode, output: "html", throwOnError: false, trust: false });
-  session.math.set(placeholder, sanitizeKaTeXHtml(rendered));
-  return placeholder;
 }
 
 function inlineTokenText(html: string): string {
