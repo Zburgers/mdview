@@ -7,6 +7,8 @@ This directory is the single home for repo test inventory.
 - `frontend/app/` - app shell, layout, and top-level workflow tests
 - `frontend/components/` - component behavior tests
 - `frontend/lib/` - frontend helper and utility tests
+- `frontend/rendering/` - per-render metadata, sanitization, rich Markdown, failure isolation, reader CSS, Mermaid, and large-document qualification
+- `fixtures/rendering/` - shared kitchen-sink and Mermaid documents plus local rendering assets
 - `setup/` - shared Vitest environment/bootstrap files
 - `legacy/python/` - archived legacy Python unittest coverage not run by `pnpm test`
 
@@ -22,3 +24,5 @@ This directory is the single home for repo test inventory.
 - add new active frontend tests under the matching `tests/frontend/` scope
 - keep imports pointing back to `src/`
 - update this file when adding a new test area or a new non-obvious suite
+
+The rendering corpus runs through `renderMarkdownDocument`; DOM-only enhancement behavior stays covered by component/enhancer tests. `performance.test.ts` uses a deterministic 512-section document and checks completion plus heading/resource counts without asserting elapsed time.

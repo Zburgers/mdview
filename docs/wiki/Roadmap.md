@@ -44,7 +44,7 @@
 - Callouts and wikilinks.
 - Attachment paste/drop support.
 
-## Proposed v1.3 Rendering Engine
+## v1.3 Rendering Engine (qualification in progress)
 
 v1.3 is intentionally a **document-rendering release**, not a workspace/graph release.
 
@@ -62,6 +62,11 @@ v1.3 is intentionally a **document-rendering release**, not a workspace/graph re
 - Per-render bounded KaTeX.
 - Wide-table containment and reader typography polish.
 - Kitchen-sink rendering/security/performance regression corpus.
+
+The implementation is on the `1.3.0` branch. Automated qualification and
+platform smoke checks are recorded in the draft
+[`v1.3.0` release notes](../releases/v1.3.0.md); this is not a released
+version.
 
 Design: [`../plans/2026-10-05-v1.3-rendering-engine-design.md`](../plans/2026-10-05-v1.3-rendering-engine-design.md)  
 Plan: [`../plans/2026-10-05-v1.3-rendering-engine.md`](../plans/2026-10-05-v1.3-rendering-engine.md)  
