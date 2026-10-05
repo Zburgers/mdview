@@ -10,137 +10,239 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 jobs:
-  release:
+  validate-candidate:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-22.04
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      base_sha: ${{ steps.release.outputs.base_sha }}
+      tree_sha: ${{ steps.candidate-tree.outputs.sha }}
     steps:
-      - name: Resolve release branch
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve release branch and validation base
         id: release
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         shell: bash
         run: |
-          if [[ "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            {
-              echo "should_release=true"
-              echo "version=${HEAD_REF}"
-              echo "tag=v${HEAD_REF}"
-            } >> "$GITHUB_OUTPUT"
-          else
+          if [[ ! "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             echo "Merged branch ${HEAD_REF} is not a version branch; skipping release."
+            exit 0
           fi
-      - uses: actions/checkout@v4
+
+          git fetch origin main --tags
+          base_sha="$(git rev-parse origin/main)"
+          if ! git merge-base --is-ancestor "${MERGE_SHA}" "${base_sha}"; then
+            echo "main does not contain release merge ${MERGE_SHA}; refusing to validate." >&2
+            exit 1
+          fi
+
+          git checkout --detach "${base_sha}"
+          {
+            echo "should_release=true"
+            echo "version=${HEAD_REF}"
+            echo "tag=v${HEAD_REF}"
+            echo "base_sha=${base_sha}"
+          } >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         if: steps.release.outputs.should_release == 'true'
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
+          version: 10
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.release.outputs.should_release == 'true'
         with:
           node-version: 22
-      - name: Prepare version commit and immutable tag
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        if: steps.release.outputs.should_release == 'true'
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: steps.release.outputs.should_release == 'true'
+        with:
+          workspaces: src-tauri -> target
+      - name: Install Linux Tauri dependencies
+        if: steps.release.outputs.should_release == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - name: Install frontend dependencies
+        if: steps.release.outputs.should_release == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Prepare candidate version
         if: steps.release.outputs.should_release == 'true'
         env:
           VERSION: ${{ steps.release.outputs.version }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # ponytail: 3 push attempts; raise only if main contention is observed in practice.
-          for attempt in 1 2 3; do
-            git fetch origin main --tags
-            base_sha="$(git rev-parse origin/main)"
-            if ! git merge-base --is-ancestor "${MERGE_SHA}" "${base_sha}"; then
-              echo "main no longer contains release merge ${MERGE_SHA}; refusing to publish." >&2
-              exit 1
-            fi
-
-            git checkout --detach "${base_sha}"
-            if ! remote_tag="$(git ls-remote origin "refs/tags/${TAG}")"; then
-              echo "Could not verify whether release tag ${TAG} already exists." >&2
-              exit 1
-            fi
-            if [[ -n "${remote_tag}" ]]; then
-              echo "Release tag ${TAG} already exists." >&2
-              exit 1
-            fi
-
-            node scripts/bump-version.mjs --version "${VERSION}"
-            git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
-            git diff --cached --check
-            if git diff --cached --quiet; then
-              echo "Version ${VERSION} is already prepared on main ${base_sha}."
-            else
-              git commit -m "release: v${VERSION}"
-            fi
-            git tag -a "${TAG}" -m "Release ${TAG}"
-
-            push_output="$(mktemp)"
-            if git push --porcelain --atomic origin HEAD:main "${TAG}" >"${push_output}" 2>&1; then
-              cat "${push_output}"
-              rm -f "${push_output}"
-              break
-            else
-              push_status=$?
-            fi
-            cat "${push_output}" >&2
-
-            if grep -Eiq 'permission|denied|protected branch|authentication|403|not authorized' "${push_output}"; then
-              rm -f "${push_output}"
-              echo "Release push failed due to an authorization or branch policy error; not retrying." >&2
-              exit "${push_status}"
-            fi
-            if ! grep -Eiq '\[rejected\] \((fetch first|non-fast-forward)\)' "${push_output}"; then
-              rm -f "${push_output}"
-              echo "Release push failed for a reason other than main advancing; not retrying." >&2
-              exit "${push_status}"
-            fi
-
-            if ! remote_tag="$(git ls-remote origin "refs/tags/${TAG}")"; then
-              rm -f "${push_output}"
-              echo "Could not verify whether release tag ${TAG} already exists after the failed push." >&2
-              exit 1
-            fi
-            if [[ -n "${remote_tag}" ]]; then
-              rm -f "${push_output}"
-              echo "Release tag ${TAG} appeared during the failed push; refusing to replace it." >&2
-              exit 1
-            fi
-
-            git fetch origin main --tags
-            next_base="$(git rev-parse origin/main)"
-            if [[ "${next_base}" == "${base_sha}" ]]; then
-              rm -f "${push_output}"
-              echo "The remote main ref did not advance; refusing to retry the release push." >&2
-              exit "${push_status}"
-            fi
-            if ! git merge-base --is-ancestor "${MERGE_SHA}" "${next_base}"; then
-              rm -f "${push_output}"
-              echo "main advanced without retaining release merge ${MERGE_SHA}; refusing to publish." >&2
-              exit 1
-            fi
-
-            rm -f "${push_output}"
-            git tag -d "${TAG}"
-            if [[ "${attempt}" == 3 ]]; then
-              echo "main kept advancing after 3 release push attempts; no tag was published." >&2
-              exit 1
-            fi
-            echo "main advanced to ${next_base}; retrying from that main tip (attempt $((attempt + 1)) of 3)."
-          done
-      - name: Dispatch native release build
+        run: node scripts/bump-version.mjs --version "${VERSION}"
+      - name: Validate candidate release version
         if: steps.release.outputs.should_release == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
-        run: gh workflow run release-build.yml --repo "${GITHUB_REPOSITORY}" --ref "${TAG}"
+        run: node scripts/validate-release-version.mjs --tag "${TAG}"
+      - name: Run frontend tests, typecheck, and build
+        if: steps.release.outputs.should_release == 'true'
+        run: |
+          pnpm test
+          node --test tests/release-integrity.test.mjs
+          pnpm typecheck
+          pnpm build
+      - name: Run Rust checks
+        if: steps.release.outputs.should_release == 'true'
+        working-directory: src-tauri
+        run: |
+          cargo fmt --check
+          cargo check
+          cargo clippy -- -D warnings
+      - name: Record validated candidate tree
+        if: steps.release.outputs.should_release == 'true'
+        id: candidate-tree
+        run: |
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          echo "sha=$(git write-tree)" >> "$GITHUB_OUTPUT"
+
+  build-candidate:
+    needs: validate-candidate
+    if: needs.validate-candidate.outputs.should_release == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-build.yml
+    with:
+      candidate_sha: ${{ needs.validate-candidate.outputs.base_sha }}
+      candidate_version: ${{ needs.validate-candidate.outputs.version }}
+      candidate_tree_sha: ${{ needs.validate-candidate.outputs.tree_sha }}
+    secrets: inherit
+
+  create-release-source:
+    needs: [validate-candidate, build-candidate]
+    if: needs.validate-candidate.outputs.should_release == 'true'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ needs.validate-candidate.outputs.tag }}
+      source_sha: ${{ steps.push.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.validate-candidate.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Prepare tested version commit and immutable tag
+        env:
+          VERSION: ${{ needs.validate-candidate.outputs.version }}
+          TAG: ${{ needs.validate-candidate.outputs.tag }}
+          BASE_SHA: ${{ needs.validate-candidate.outputs.base_sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          CANDIDATE_TREE: ${{ needs.validate-candidate.outputs.tree_sha }}
+        shell: bash
+        run: |
+          git fetch origin main --tags
+          current_base="$(git rev-parse origin/main)"
+          if [[ "${current_base}" != "${BASE_SHA}" ]]; then
+            echo "main advanced after candidate validation; rerun release validation before tagging." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${MERGE_SHA}" "${BASE_SHA}"; then
+            echo "main no longer contains release merge ${MERGE_SHA}; refusing to publish." >&2
+            exit 1
+          fi
+          if [[ -n "$(git ls-remote origin "refs/tags/${TAG}")" ]]; then
+            echo "Release tag ${TAG} already exists." >&2
+            exit 1
+          fi
+
+          node scripts/bump-version.mjs --version "${VERSION}"
+          node scripts/validate-release-version.mjs --tag "${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          git diff --cached --check
+          candidate_tree="$(git write-tree)"
+          if [[ "${candidate_tree}" != "${CANDIDATE_TREE}" ]]; then
+            echo "The release source tree differs from the tested candidate." >&2
+            exit 1
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "release: ${TAG}"
+          fi
+          git tag -a "${TAG}" -m "Release ${TAG}"
+      - name: Push tested source and tag atomically
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate-candidate.outputs.tag }}
+        shell: bash
+        run: |
+          auth_header="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
+          git -c http.extraheader="AUTHORIZATION: basic ${auth_header}" \
+            push --porcelain --atomic origin HEAD:main "${TAG}"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish-release:
+    needs: [create-release-source, build-candidate]
+    if: needs.create-release-source.result == 'success'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.create-release-source.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Validate prepared release metadata
+        env:
+          TAG: ${{ needs.create-release-source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.create-release-source.outputs.source_sha }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          test "${TAG}" = "v${version}"
+          node scripts/validate-release-version.mjs --tag "${TAG}" --latest release-assets/latest.json
+          tag_sha="$(git ls-remote origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | node scripts/resolve-release-tag.mjs)"
+          test "${tag_sha}" = "${SOURCE_SHA}"
+      - name: List release assets
+        run: find release-assets -maxdepth 5 -type f -print | sort
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ needs.create-release-source.outputs.tag }}
+          name: mdview ${{ needs.create-release-source.outputs.tag }}
+          target_commitish: ${{ needs.create-release-source.outputs.source_sha }}
+          body_path: release-assets/RELEASE_NOTES.md
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
+          files: |
+            release-assets/**/*.AppImage
+            release-assets/**/*.deb
+            release-assets/**/*.rpm
+            release-assets/**/*.exe
+            release-assets/**/*.dmg
+            release-assets/**/*.sig
+            release-assets/**/*.app.tar.gz
+            release-assets/latest.json

@@ -1,17 +1,28 @@
 name: Release Build
 
 on:
-  push:
-    branches: [main]
-    tags:
-      - "v*"
   pull_request:
     branches: [main]
-  workflow_dispatch:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Main commit used as the base for the tested version candidate
+        required: true
+        type: string
+      candidate_version:
+        description: Version branch name to prepare and build
+        required: true
+        type: string
+      candidate_tree_sha:
+        description: Expected source tree after applying the version bump
+        required: true
+        type: string
 
 concurrency:
-  group: mdview-release-${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+  group: mdview-release-${{ inputs.candidate_sha || github.ref }}
+  cancel-in-progress: ${{ inputs.candidate_sha == '' }}
 
 permissions:
   contents: read
@@ -19,23 +30,25 @@ permissions:
 jobs:
   validate:
     name: Validate
+    if: github.event_name != 'workflow_call'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
       - name: Install Linux Tauri dependencies
@@ -46,38 +59,40 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
-      - run: pnpm install --frozen-lockfile
-      - name: Validate release version sources
-        run: node scripts/validate-release-version.mjs
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-      - name: Validate tagged release version
-        run: node scripts/validate-release-version.mjs --tag "${GITHUB_REF_NAME}"
-        if: startsWith(github.ref, 'refs/tags/v')
-      - name: Validate immutable release tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Simulate merged release version
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         shell: bash
         run: |
-          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" "refs/tags/${GITHUB_REF_NAME}^{}" | node scripts/resolve-release-tag.mjs)"
-          test "${tag_sha}" = "${GITHUB_SHA}"
-      - name: Require tagged release commit on main
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
-      - run: pnpm test
-      - run: node --test tests/release-integrity.test.mjs
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: cargo fmt --check
+          if [[ "${HEAD_REF}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            node scripts/bump-version.mjs --version "${HEAD_REF}"
+          fi
+      - name: Validate release version sources
+        run: node scripts/validate-release-version.mjs
+      - name: Run pnpm test
+        run: pnpm test
+      - name: Run release integrity tests
+        run: node --test tests/release-integrity.test.mjs
+      - name: Run pnpm typecheck
+        run: pnpm typecheck
+      - name: Run pnpm build
+        run: pnpm build
+      - name: Run cargo fmt --check
         working-directory: src-tauri
-      - run: cargo check
+        run: cargo fmt --check
+      - name: Run cargo check
         working-directory: src-tauri
-      - run: cargo clippy -- -D warnings
+        run: cargo check
+      - name: Run cargo clippy -- -D warnings
         working-directory: src-tauri
+        run: cargo clippy -- -D warnings
 
   bundle:
     name: Bundle ${{ matrix.platform }}
-    needs: validate
-    if: >-
-      startsWith(github.ref, 'refs/tags/v')
+    if: inputs.candidate_sha != ''
     strategy:
       fail-fast: false
       matrix:
@@ -93,20 +108,30 @@ jobs:
             bundles: dmg,app
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.sha }}
-      - uses: pnpm/action-setup@v4
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
+      - name: Prepare and verify candidate tree
+        env:
+          VERSION: ${{ inputs.candidate_version }}
+          EXPECTED_TREE: ${{ inputs.candidate_tree_sha }}
+        run: |
+          node scripts/bump-version.mjs --version "${VERSION}"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          actual_tree="$(git write-tree)"
+          test "${actual_tree}" = "${EXPECTED_TREE}"
       - name: Install Linux Tauri dependencies
         if: matrix.platform == 'linux'
         run: |
@@ -118,13 +143,15 @@ jobs:
             patchelf \
             rpm
       - run: pnpm install --frozen-lockfile
-      - run: ./scripts/build-linux-bundles.sh
+      - name: Build Linux bundles
         if: matrix.platform == 'linux'
+        run: ./scripts/build-linux-bundles.sh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+      - name: Build Windows and macOS bundles
         if: matrix.platform != 'linux'
+        run: pnpm tauri build --bundles ${{ matrix.bundles }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -137,7 +164,7 @@ jobs:
             X64) echo "darwin-x86_64" > updater-target-macos.txt ;;
             *) echo "Unsupported macOS runner arch: ${{ runner.arch }}" >&2; exit 1 ;;
           esac
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mdview-${{ matrix.platform }}
           path: |
@@ -153,91 +180,54 @@ jobs:
             updater-target-*.txt
           if-no-files-found: error
 
-  publish-release:
-    name: Publish GitHub Release
+  prepare-release-assets:
+    name: Validate release assets and notes
     needs: bundle
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: inputs.candidate_sha != ''
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - name: Resolve release metadata
-        id: release
-        shell: bash
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          tag="${GITHUB_REF_NAME}"
-          test "${tag}" = "v${version}"
-          grep -q "^## \[${version}\]$" CHANGELOG.md
-
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-          notes_file="RELEASE_NOTES.md"
-          {
-            echo "# mdview ${tag}"
-            echo
-            awk -v heading="## [${version}]" '
-              $0 == heading { in_section=1; next }
-              in_section && substr($0, 1, 4) == "## [" { exit }
-              in_section { print }
-            ' CHANGELOG.md
-          } > "$notes_file"
-
-          test "$(wc -l < "$notes_file")" -gt 2
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: release-assets
           merge-multiple: true
-      - name: List release assets
-        run: find release-assets -maxdepth 5 -type f -print | sort
-      - name: Generate updater manifest
-        run: |
-          node scripts/create-updater-manifest.mjs \
-            --version "${{ steps.release.outputs.version }}" \
-            --tag "${{ steps.release.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --assets-dir release-assets \
-            --output latest.json
-      - name: Validate generated updater manifest
-        run: node scripts/validate-release-version.mjs --tag "${{ steps.release.outputs.tag }}" --latest latest.json
-      - name: Refuse to mutate a release from another commit
+      - name: Prepare and validate release notes and updater manifest
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.candidate_version }}
         shell: bash
         run: |
-          tag_sha="$(git ls-remote origin "refs/tags/${GITHUB_REF_NAME}" "refs/tags/${GITHUB_REF_NAME}^{}" | node scripts/resolve-release-tag.mjs)"
-          test "${tag_sha}" = "${GITHUB_SHA}"
-
-          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>/dev/null || true)"
-          if [[ -n "${release_json}" ]]; then
-            target_commitish="$(jq -r '.target_commitish // empty' <<<"${release_json}")"
-            if [[ -n "${target_commitish}" && "${target_commitish}" != "${GITHUB_SHA}" ]]; then
-              echo "Existing release ${GITHUB_REF_NAME} points at ${target_commitish}, not ${GITHUB_SHA}." >&2
-              exit 1
-            fi
+          node scripts/bump-version.mjs --version "${VERSION}"
+          awk -v heading="## [${VERSION}]" '
+            $0 == heading { in_section=1; next }
+            in_section && substr($0, 1, 4) == "## [" { exit }
+            in_section { print }
+          ' CHANGELOG.md > release-section.md
+          if [[ ! -s release-section.md ]] || grep -q "Automatically released from merged version branch" release-section.md; then
+            echo "Add release notes for ${VERSION} to CHANGELOG.md before merging the version branch." >&2
+            exit 1
           fi
-      - uses: softprops/action-gh-release@v2
+          {
+            echo "# mdview v${VERSION}"
+            echo
+            cat release-section.md
+          } > RELEASE_NOTES.md
+          node scripts/create-updater-manifest.mjs \
+            --version "${VERSION}" \
+            --tag "v${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --assets-dir release-assets \
+            --output latest.json
+          node scripts/validate-release-version.mjs --tag "v${VERSION}" --latest latest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          tag_name: ${{ steps.release.outputs.tag }}
-          name: mdview ${{ steps.release.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          body_path: RELEASE_NOTES.md
-          fail_on_unmatched_files: true
-          overwrite_files: true
-          make_latest: true
-          files: |
-            release-assets/**/*.AppImage
-            release-assets/**/*.deb
-            release-assets/**/*.rpm
-            release-assets/**/*.exe
-            release-assets/**/*.dmg
-            release-assets/**/*.sig
-            release-assets/**/*.app.tar.gz
+          name: mdview-release-metadata
+          path: |
+            RELEASE_NOTES.md
             latest.json
+          if-no-files-found: error
