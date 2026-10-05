@@ -389,11 +389,10 @@ describe("App desktop layout", () => {
     ]);
   });
 
-  it("continues to local wikilink guesses when the recent-file match is missing", async () => {
+  it("prefers a sibling wikilink target over a recent file with the same basename", async () => {
     vi.mocked(loadSettings).mockResolvedValue({ ...defaultSettings, viewMode: "split", recentFiles: ["/recent/Target.md"] });
     vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
     vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
-      if (path === "/recent/Target.md") throw new Error("Could not read file: No such file or directory (os error 2)");
       return { path, contents: path === "/tmp/current.md" ? "[[Target]]" : "# Local target", lossy: false };
     });
 
@@ -404,7 +403,49 @@ describe("App desktop layout", () => {
     await waitFor(() => expect(screen.getByPlaceholderText("Markdown source")).toHaveValue("# Local target"));
     expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
       "/tmp/current.md",
-      "/recent/Target.md",
+      "/tmp/Target.md"
+    ]);
+  });
+
+  it("uses a unique recent wikilink match when the sibling note is missing", async () => {
+    vi.mocked(loadSettings).mockResolvedValue({ ...defaultSettings, viewMode: "split", recentFiles: ["/recent/Target.md"] });
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
+      if (path === "/tmp/Target.md") throw new Error("Could not read file: No such file or directory (os error 2)");
+      return { path, contents: path === "/tmp/current.md" ? "[[Target]]" : "# Recent target", lossy: false };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test wikilink" }));
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Markdown source")).toHaveValue("# Recent target"));
+    expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
+      "/tmp/current.md",
+      "/tmp/Target.md",
+      "/recent/Target.md"
+    ]);
+  });
+
+  it("does not guess when a wikilink matches multiple recent files", async () => {
+    vi.mocked(loadSettings).mockResolvedValue({
+      ...defaultSettings,
+      viewMode: "split",
+      recentFiles: ["/recent/a/Target.md", "/recent/b/Target.md"]
+    });
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => {
+      if (path === "/tmp/current.md") return { path, contents: "[[Target]]", lossy: false };
+      throw new Error("Could not read file: No such file or directory (os error 2)");
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test wikilink" }));
+
+    expect(await screen.findByText("Linked note is ambiguous: Target")).toBeInTheDocument();
+    expect(vi.mocked(readMarkdownFile).mock.calls.map(([path]) => path)).toEqual([
+      "/tmp/current.md",
       "/tmp/Target.md"
     ]);
   });

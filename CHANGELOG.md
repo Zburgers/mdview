@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added multi-tab editing with unsaved-change protection for reloads, tab closure, and native window closure.
-- Added task-list checkbox synchronization, wikilinks with heading navigation, and KaTeX math rendering.
+- Added task-list checkbox synchronization, foldable callouts, wikilinks with heading navigation, and KaTeX math rendering.
 - Added Markdown-relative attachments for pasted and dropped files.
 
 ### Fixed

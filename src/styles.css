@@ -1257,6 +1257,11 @@ select:focus-visible {
   border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 30%);
 }
 
+.callout > summary.callout-title {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
 .callout-body {
   padding: 12px 14px;
 }

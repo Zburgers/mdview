@@ -119,6 +119,22 @@ describe("markdown helpers", () => {
     expect(links[4].getAttribute("data-block")).toBe("block");
   });
 
+  it("renders foldable callouts with the requested initial state", async () => {
+    const expandedHtml = await renderMarkdown("> [!NOTE]+ Details\n> Expanded body");
+    const expanded = new DOMParser().parseFromString(expandedHtml, "text/html");
+    const expandedCallout = expanded.querySelector("details.callout");
+    expect(expandedCallout?.hasAttribute("open")).toBe(true);
+    expect(expandedCallout?.querySelector("summary.callout-title")?.textContent).toBe("Details");
+    expect(expandedCallout?.querySelector(".callout-body")?.textContent?.trim()).toBe("Expanded body");
+
+    const collapsedHtml = await renderMarkdown("> [!TIP]-\n> Collapsed body");
+    const collapsed = new DOMParser().parseFromString(collapsedHtml, "text/html");
+    const collapsedCallout = collapsed.querySelector("details.callout");
+    expect(collapsedCallout?.hasAttribute("open")).toBe(false);
+    expect(collapsedCallout?.querySelector("summary.callout-title")?.textContent).toBe("tip");
+    expect(collapsedCallout?.querySelector(".callout-body")?.textContent?.trim()).toBe("Collapsed body");
+  });
+
   it("renders inline and block math through KaTeX", async () => {
     const html = await renderMarkdown("Inline $x^2$\n\n$$\ny = x^2\n$$");
     const document = new DOMParser().parseFromString(html, "text/html");

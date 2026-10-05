@@ -59,7 +59,11 @@ markedParser.use({
         const bodyHtml = t.tokens?.length
           ? (this as unknown as { parser: { parse: (toks: unknown[]) => string } }).parser.parse(t.tokens as never[])
           : "";
-        return `<div class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold="${escapeAttribute(t.fold)}"><div class="callout-title">${escapeAttribute(t.title)}</div><div class="callout-body">${bodyHtml}</div></div>\n`;
+        if (t.fold === "+" || t.fold === "-") {
+          const open = t.fold === "+" ? " open" : "";
+          return `<details class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold="${escapeAttribute(t.fold)}"${open}><summary class="callout-title">${escapeAttribute(t.title)}</summary><div class="callout-body">${bodyHtml}</div></details>\n`;
+        }
+        return `<div class="callout callout-${escapeAttribute(t.calloutType)}" data-callout="${escapeAttribute(t.calloutType)}" data-fold=""><div class="callout-title">${escapeAttribute(t.title)}</div><div class="callout-body">${bodyHtml}</div></div>\n`;
       },
     },
     {
@@ -316,6 +320,7 @@ export async function renderMarkdown(
       "data-wikilink",
       "disabled",
       "href",
+      "open",
       "rel",
       "src",
       "title",

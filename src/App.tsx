@@ -650,27 +650,32 @@ export default function App() {
 
   async function handleOpenWikilink(target: string, heading?: string) {
     if (!target) return;
-    // Try to find in recentFiles by basename match
-    const candidates = settings.recentFiles.filter((f) => {
-      const base = f.split(/[\\/]/).pop()?.replace(/\.(md|markdown|mdown|mkd)$/i, "") ?? "";
-      return base.toLowerCase() === target.toLowerCase() || f.toLowerCase().endsWith(`/${target.toLowerCase()}.md`);
-    });
-    if (candidates.length > 0) {
-      const outcome = await openPath(candidates[0], heading);
-      if (outcome !== "missing") return;
-    }
-    // Try relative to current file directory
+    // Wikilinks resolve beside the current note before using the recent-file list.
     if (documentState.path) {
       const baseDir = documentState.path.split(/[\\/]/).slice(0, -1).join("/");
-      const guesses = [
-        `${baseDir}/${target}.md`,
-        `${baseDir}/${target}`,
-        `${target}.md`,
-      ];
-      for (const g of guesses) {
+      for (const g of [`${baseDir}/${target}.md`, `${baseDir}/${target}`]) {
         const outcome = isMarkdownLikePath(g) ? await openPath(g, heading) : "missing";
         if (outcome !== "missing") return;
       }
+    }
+
+    const candidates = settings.recentFiles.filter((path) => {
+      const base = path.split(/[\\/]/).pop()?.replace(/\.(md|markdown|mdown|mkd)$/i, "") ?? "";
+      return base.toLowerCase() === target.toLowerCase() || path.toLowerCase().endsWith(`/${target.toLowerCase()}.md`);
+    });
+    const uniqueCandidates = [...new Set(candidates)];
+    if (uniqueCandidates.length > 1) {
+      setStatus(`Linked note is ambiguous: ${target}`);
+      return;
+    }
+    if (uniqueCandidates.length === 1) {
+      const outcome = await openPath(uniqueCandidates[0], heading);
+      if (outcome !== "missing") return;
+    }
+
+    if (documentState.path) {
+      const outcome = await openPath(`${target}.md`, heading);
+      if (outcome !== "missing") return;
     }
     setStatus(`Linked note not found: ${target}${heading ? `#${heading}` : ""}`);
   }
