@@ -282,8 +282,9 @@ that can affect desktop integration files.
   hardening before a public release.
 - Windows and macOS artifacts are built on native GitHub Actions runners and are
   unsigned by default.
-- The v1.3 rendering changes are under qualification on this branch; the package
-  version remains 1.2.5 until the repository's release workflow updates it.
+- The v1.3 rendering changes are undergoing packaged-app qualification; package
+  version `1.3.0` is prepared on the release branch, and publication waits for
+  the validated release PR merge.
 
 ## License
 

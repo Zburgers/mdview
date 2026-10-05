@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0]
+
+_Prepared on the `1.3.0` release branch; release is pending PR validation and merge._
+
+### Added
+- Structured per-render Markdown output with heading metadata and Outline navigation.
+- Document-relative Markdown links and images, including parent-folder image paths and visible missing-image placeholders.
+- Highlighted code fences with language labels and copy controls; expanded Mermaid diagram/chart support and standalone diagram blocks.
+- Callouts, highlights, footnotes, bounded KaTeX math, contained tables, and reader styling.
+
+### Changed
+- Reworked preview rendering around a single sanitized result shared by the document preview and Outline.
+- Kept external links behind explicit native confirmation and local file access behind Rust authorization.
+
+### Fixed
+- Preserved preview enhancers across search-only rerenders and identical HTML results.
+- Isolated rendering failures so a malformed diagram or other block does not blank unrelated content.
+
 ## [1.2.6]
 
 _Includes the changes since v1.2.4. The v1.2.5 tag was not published as a release._
