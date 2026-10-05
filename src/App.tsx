@@ -1111,6 +1111,7 @@ export default function App() {
             <textarea
               ref={sourceRef}
               className="source-pane"
+              wrap="off"
               value={documentState.markdown}
               placeholder="Markdown source"
               spellCheck={false}

@@ -1066,6 +1066,7 @@ select:focus-visible {
   min-height: 0;
   height: 100%;
   overflow: auto;
+  white-space: pre;
   padding: 28px;
   resize: none;
   border: 0;
