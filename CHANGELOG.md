@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.6]
+
+_Includes the changes since v1.2.4. The v1.2.5 tag was not published as a release._
+
+### Added
+- Multi-tab editing with unsaved-change protection for reloads, tab closure, and native window closure.
+- Task-list checkbox synchronization, foldable callouts, wikilinks with heading navigation, and KaTeX math rendering.
+- Markdown-relative attachments for pasted and dropped files.
+
+### Fixed
+- Resolve sibling wikilink documents before recent-file matches, and reject ambiguous recent-file matches.
+- Respect initially expanded and collapsed callout markers using accessible native disclosure controls.
+- Bound Markdown reads and make writes atomic, with symlink and path-containment checks.
+- Block Mermaid SVG remote resources hidden by CSS escapes, comments, and special-scheme URLs.
+- Test the prepared release version instead of a hardcoded historical tag.
+
+### Changed
+- Validate code, build all native bundles, and verify signed updater metadata before creating an immutable release tag.
+- Publish the validated artifacts from the same candidate source tree, with pinned actions, dependency caches, and restricted workflow permissions.
+
 ## [1.2.5]
 
 ### Added
