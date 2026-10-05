@@ -18,6 +18,7 @@ directory.
 | ADR | Title | Status | Date |
 | --- | --- | --- | --- |
 | [0001](0001-release-and-push-adr-governance/adr.md) | Enforce ADR Governance for Push and Release Workflows | Proposed | 2026-04-10 |
+| [0002](0002-modular-markdown-rendering-pipeline/adr.md) | Modular Markdown Rendering Pipeline | Proposed | 2026-10-05 |
 
 ## Proposed Workflow For Pushes And Releases
 
@@ -59,6 +60,9 @@ docs/adr/
     adr.md
     assets/
   0001-release-and-push-adr-governance/
+    adr.md
+    assets/
+  0002-modular-markdown-rendering-pipeline/
     adr.md
     assets/
 ```
