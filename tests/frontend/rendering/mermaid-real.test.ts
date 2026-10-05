@@ -16,7 +16,19 @@ describe("pinned Mermaid gallery qualification", () => {
     svgElement.getBBox = () => ({ x: 0, y: 0, width: 120, height: 24, top: 0, right: 120, bottom: 24, left: 0, toJSON: () => ({}) });
     svgElement.getComputedTextLength = function () { return (this.textContent ?? "").length * 8; };
     const { default: mermaid } = await import("mermaid");
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", htmlLabels: false, theme: "default" });
+    const secureDefaults = mermaid.mermaidAPI.getConfig().secure ?? [];
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      htmlLabels: false,
+      secure: Array.from(new Set([...secureDefaults, "htmlLabels"])),
+      theme: "default"
+    });
+    const configured = mermaid.mermaidAPI.getConfig();
+    expect(configured.securityLevel).toBe("strict");
+    expect(configured.maxTextSize).toBe(50_000);
+    expect(configured.maxEdges).toBe(500);
+    expect(configured.secure).toEqual(expect.arrayContaining([...secureDefaults, "htmlLabels"]));
     const result = await renderMarkdownDocument(gallery);
     const host = document.createElement("div");
     host.innerHTML = result.html;
@@ -34,6 +46,26 @@ describe("pinned Mermaid gallery qualification", () => {
           expect(sanitized).toContain("Stop");
           expect(sanitized).toMatch(/<text\b/i);
         }
+      }
+
+      const overrideSources = [
+        '%%{init: {"htmlLabels": true, "securityLevel": "loose", "maxTextSize": 999999}}%%\nflowchart LR\nA[RootDirectiveLabel] --> B[End]',
+        '%%{init: {"flowchart": {"htmlLabels": true}}}%%\nflowchart LR\nA[FlowchartDirectiveLabel] --> B[End]',
+        '---\nconfig:\n  htmlLabels: true\n  securityLevel: loose\n  maxEdges: 100000\n---\nflowchart LR\nA[RootFrontmatterLabel] --> B[End]',
+        '---\nconfig:\n  flowchart:\n    htmlLabels: true\n---\nflowchart LR\nA[FlowchartFrontmatterLabel] --> B[End]'
+      ];
+      for (const [index, source] of overrideSources.entries()) {
+        const { svg } = await mermaid.render(`mdview-label-policy-${index}`, source);
+        const sanitized = sanitizeMermaidSvg(svg);
+        const expectedLabel = source.match(/\[(.*?)\]/)?.[1] ?? "";
+        const svgDocument = new DOMParser().parseFromString(sanitized, "image/svg+xml");
+        const visibleText = Array.from(svgDocument.querySelectorAll("text"), (text) => text.textContent ?? "").join(" ");
+        expect(visibleText).toContain(expectedLabel);
+        expect(sanitized).toMatch(/<text\b/i);
+        expect(sanitized).not.toMatch(/<foreignObject\b/i);
+        expect(mermaid.mermaidAPI.getConfig().securityLevel).toBe("strict");
+        expect(mermaid.mermaidAPI.getConfig().maxTextSize).toBe(50_000);
+        expect(mermaid.mermaidAPI.getConfig().maxEdges).toBe(500);
       }
     } finally {
       if (originalGetBBox) svgElement.getBBox = originalGetBBox;

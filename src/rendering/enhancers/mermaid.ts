@@ -39,10 +39,12 @@ export function enhanceMermaid(
       if (loadTimeout !== undefined) clearTimeout(loadTimeout);
     }
     if (cancelled) return;
+    const secure = mermaid.mermaidAPI.getConfig().secure ?? [];
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       htmlLabels: false,
+      secure: Array.from(new Set([...secure, "htmlLabels"])),
       theme: theme === "dark" ? "dark" : "default"
     });
 

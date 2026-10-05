@@ -3,12 +3,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Preview } from "../../../src/components/Preview";
 import type { MarkdownRenderState } from "../../../src/rendering/useMarkdownRender";
 
-const { initialize, renderMermaid, sanitize } = vi.hoisted(() => ({
-  initialize: vi.fn(),
-  renderMermaid: vi.fn(),
-  sanitize: vi.fn((svg: string) => svg.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ""))
-}));
-vi.mock("mermaid", () => ({ default: { initialize, render: renderMermaid } }));
+const { initialize, renderMermaid, sanitize, getConfig, secureDefaults } = vi.hoisted(() => {
+  const secureDefaults = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges"];
+  return {
+    initialize: vi.fn(),
+    renderMermaid: vi.fn(),
+    getConfig: vi.fn(() => ({ secure: secureDefaults })),
+    secureDefaults,
+    sanitize: vi.fn((svg: string) => svg.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ""))
+  };
+});
+vi.mock("mermaid", () => ({ default: { initialize, render: renderMermaid, mermaidAPI: { getConfig } } }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(), message: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (path: string) => path }));
@@ -42,7 +47,13 @@ describe("Preview Mermaid enhancement", () => {
       expect(view.container.innerHTML).not.toContain("<script");
       expect(view.container.textContent).toContain("safe");
     });
-    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, htmlLabels: false, theme: "default" }));
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({
+      securityLevel: "strict",
+      startOnLoad: false,
+      htmlLabels: false,
+      secure: [...secureDefaults, "htmlLabels"],
+      theme: "default"
+    }));
     expect(sanitize).toHaveBeenCalledWith('<svg><script>alert(1)</script><text>safe</text></svg>', { allowRemoteImages: false });
 
     view.rerender(<Preview renderState={result} filePath={null} theme="light" searchQuery="changed" />);

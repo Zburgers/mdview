@@ -7,7 +7,7 @@ const {
   askMock, messageMock, openUrlMock, highlightTextMock, convertFileSrcMock,
   resolveMarkdownImagePathMock,
   mermaidInitializeMock, mermaidRenderMock, sanitizeMermaidSvgMock,
-  containsRemoteResourceReferenceMock
+  containsRemoteResourceReferenceMock, mermaidGetConfigMock
 } = vi.hoisted(() => ({
   askMock: vi.fn(),
   messageMock: vi.fn(),
@@ -17,6 +17,7 @@ const {
   resolveMarkdownImagePathMock: vi.fn(),
   mermaidInitializeMock: vi.fn(),
   mermaidRenderMock: vi.fn(),
+  mermaidGetConfigMock: vi.fn(() => ({ secure: ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges"] })),
   sanitizeMermaidSvgMock: vi.fn((svg: string) => svg),
   containsRemoteResourceReferenceMock: vi.fn()
 }));
@@ -28,7 +29,7 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: convertFileSrcMock }));
 vi.mock("../../../src/lib/tauri", () => ({
   resolveMarkdownImagePath: resolveMarkdownImagePathMock,
 }));
-vi.mock("mermaid", () => ({ default: { initialize: mermaidInitializeMock, render: mermaidRenderMock } }));
+vi.mock("mermaid", () => ({ default: { initialize: mermaidInitializeMock, render: mermaidRenderMock, mermaidAPI: { getConfig: mermaidGetConfigMock } } }));
 vi.mock("../../../src/lib/highlight", () => ({ highlightText: highlightTextMock }));
 vi.mock("../../../src/lib/markdown", () => ({
   containsRemoteResourceReference: containsRemoteResourceReferenceMock,

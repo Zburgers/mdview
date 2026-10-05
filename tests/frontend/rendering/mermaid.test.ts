@@ -7,9 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderMarkdownDocument } from "../../../src/rendering/render";
 import { enhanceMermaid } from "../../../src/rendering/enhancers/mermaid";
 
-const { initialize, render, createRootMock } = vi.hoisted(() => ({
+const { initialize, render, createRootMock, secureDefaults, getConfig } = vi.hoisted(() => {
+  const secureDefaults = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges"];
+  return {
   initialize: vi.fn(),
   render: vi.fn(),
+  secureDefaults,
+  getConfig: vi.fn(() => ({ secure: secureDefaults })),
   createRootMock: vi.fn((host: HTMLElement) => ({
     render(element: { props: { sanitizedSvg: string; error?: string } }) {
       host.innerHTML = element.props.error
@@ -18,8 +22,9 @@ const { initialize, render, createRootMock } = vi.hoisted(() => ({
     },
     unmount() { host.replaceChildren(); }
   }))
-}));
-vi.mock("mermaid", () => ({ default: { initialize, render } }));
+  };
+});
+vi.mock("mermaid", () => ({ default: { initialize, render, mermaidAPI: { getConfig } } }));
 vi.mock("react-dom/client", () => ({ createRoot: createRootMock }));
 vi.mock("../../../src/lib/markdown", () => ({
   containsRemoteResourceReference: (value: string) => /https?:\/\//i.test(value),
@@ -52,7 +57,13 @@ describe("generic Mermaid enhancement", () => {
       "pie title Languages", "xychart-beta", "radar-beta", "sankey-beta"
     ]);
     expect(render.mock.calls.map(([, source]) => source)).toEqual(sources);
-    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ securityLevel: "strict", startOnLoad: false, htmlLabels: false, theme: "default" }));
+    expect(initialize).toHaveBeenCalledWith(expect.objectContaining({
+      securityLevel: "strict",
+      startOnLoad: false,
+      htmlLabels: false,
+      secure: [...secureDefaults, "htmlLabels"],
+      theme: "default"
+    }));
     expect(root.querySelectorAll(".diagram-viewer-content svg")).toHaveLength(9);
     expect(root.innerHTML).not.toContain("<script>");
     cleanup();
@@ -98,7 +109,7 @@ describe("generic Mermaid enhancement", () => {
     render.mockResolvedValue({ svg: "<svg><text>current</text></svg>" });
     const cleanup = enhanceMermaid(root, "light", false, load);
     root.innerHTML = '<pre><code class="language-mermaid">sequenceDiagram\nReader-&gt;&gt;mdview: Current</code></pre>';
-    resolveModule({ default: { initialize, render } } as unknown as typeof import("mermaid"));
+    resolveModule({ default: { initialize, render, mermaidAPI: { getConfig } } } as unknown as typeof import("mermaid"));
 
     await waitFor(() => expect(render).toHaveBeenCalledTimes(1));
     expect(render.mock.calls[0]?.[1]).toContain("Current");
