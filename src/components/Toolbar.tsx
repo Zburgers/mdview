@@ -6,6 +6,7 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
+  ListTree,
   Printer,
   Save,
   Search,
@@ -23,6 +24,7 @@ type ToolbarProps = {
   query: string;
   searchMatchCount: number;
   syncScroll: boolean;
+  outlineOpen: boolean;
   appVersion: string;
   onNewFile: () => void;
   onOpen: () => void;
@@ -34,6 +36,7 @@ type ToolbarProps = {
   onThemeChange: (theme: ThemePreference) => void;
   onQueryChange: (query: string) => void;
   onSyncScrollChange: (enabled: boolean) => void;
+  onToggleOutline: () => void;
   searchInputRef?: RefObject<HTMLInputElement | null>;
 };
 
@@ -114,6 +117,17 @@ export function Toolbar(props: ToolbarProps) {
         >
           <Zap size={15} />
           <span>Sync</span>
+        </button>
+
+        <button
+          className={`sync-toggle ${props.outlineOpen ? "active" : ""}`}
+          type="button"
+          aria-pressed={props.outlineOpen}
+          title="Toggle document outline"
+          onClick={props.onToggleOutline}
+        >
+          <ListTree size={15} />
+          <span>Outline</span>
         </button>
 
         <ThemeDropdown theme={props.theme} onThemeChange={props.onThemeChange} />
@@ -223,4 +237,3 @@ export function ThemeDropdown({ theme, onThemeChange }: ThemeDropdownProps) {
     </div>
   );
 }
-

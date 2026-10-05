@@ -1,25 +1,26 @@
-import mermaid from "mermaid";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ask, message } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { highlightText } from "../lib/highlight";
 import { classifyHref } from "../lib/links";
-import { resolveMarkdownImagePath } from "../lib/tauri";
-import {
-  containsRemoteResourceReference,
-  renderMarkdown,
-  sanitizeMermaidSvg
-} from "../lib/markdown";
+import { enhanceCodeBlocks } from "../rendering/enhancers/code";
+import { enhanceMarkdownImages, prepareMarkdownImageSources } from "../rendering/enhancers/resources";
+import { enhanceMermaid } from "../rendering/enhancers/mermaid";
+import { enhanceTables } from "../rendering/enhancers/tables";
+import type { HeadingEntry, RenderResult } from "../rendering/types";
+import type { MarkdownRenderState } from "../rendering/useMarkdownRender";
+import { ImageLightbox } from "./ImageLightbox";
 
 type PreviewProps = {
-  markdown: string;
+  renderState: MarkdownRenderState;
   filePath: string | null;
   theme: "light" | "dark";
   searchQuery: string;
   allowRemoteImages?: boolean;
   onToggleTask?: (line: number) => void;
   onOpenWikilink?: (target: string, heading?: string) => void;
+  onOpenLocalLink?: (path: string, heading?: string) => void;
+  onHeadingActive?: (headingId: string | null) => void;
   scrollToHeading?: string;
   onHeadingNavigationComplete?: () => void;
 };
@@ -28,177 +29,113 @@ function normalizeHeading(value: string): string {
   return value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
-function slugifyHeading(value: string): string {
-  return value
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-|-$/g, "");
+function decodeFragment(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function findHeading(headings: readonly HeadingEntry[], value: string): HeadingEntry | undefined {
+  const decoded = decodeFragment(value);
+  return headings.find((heading) => heading.id === value || heading.id === decoded)
+    ?? headings.find((heading) => normalizeHeading(heading.text) === normalizeHeading(decoded));
+}
+
+function scrollToHeading(root: HTMLElement, headings: readonly HeadingEntry[], value: string): void {
+  const heading = findHeading(headings, value);
+  if (!heading) return;
+  const element = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"))
+    .find((candidate) => candidate.id === heading.id);
+  element?.scrollIntoView({ block: "start" });
 }
 
 export function Preview({
-  markdown,
+  renderState,
   filePath,
   theme,
   searchQuery,
   allowRemoteImages = false,
   onToggleTask,
   onOpenWikilink,
-  scrollToHeading,
+  onOpenLocalLink,
+  onHeadingActive,
+  scrollToHeading: pendingHeading,
   onHeadingNavigationComplete
 }: PreviewProps) {
-  const [html, setHtml] = useState("");
-  const [renderedMarkdown, setRenderedMarkdown] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    renderMarkdown(markdown, { allowRemoteImages })
-      .then((nextHtml) => {
-        if (!cancelled) {
-          setHtml(nextHtml);
-          setRenderedMarkdown(markdown);
-          setError(null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Markdown rendering failed");
-          setRenderedMarkdown(markdown);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [allowRemoteImages, markdown]);
-
-  useEffect(() => {
-    if (!scrollToHeading || renderedMarkdown !== markdown) return;
-    if (error) {
-      onHeadingNavigationComplete?.();
-      return;
-    }
-
-    const root = containerRef.current;
-    if (!root) return;
-    let headingText = scrollToHeading;
-    try {
-      headingText = decodeURIComponent(headingText);
-    } catch {
-      // Keep literal heading text when it is not percent-encoded.
-    }
-    const target = normalizeHeading(headingText);
-    const targetSlug = slugifyHeading(headingText);
-    const heading = Array.from(root.querySelectorAll("h1, h2, h3, h4, h5, h6")).find((element) => {
-      const text = element.textContent ?? "";
-      return normalizeHeading(text) === target || slugifyHeading(text) === targetSlug;
-    });
-
-    heading?.scrollIntoView({ block: "start" });
-    onHeadingNavigationComplete?.();
-  }, [error, html, markdown, onHeadingNavigationComplete, renderedMarkdown, scrollToHeading]);
+  const containerRef = useRef<HTMLElement>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
+  const result: RenderResult | null = renderState.status === "success" ? renderState.result : null;
+  const html = useMemo(() => result ? prepareMarkdownImageSources(result.html) : "", [result]);
+  const htmlContent = useMemo(() => ({ __html: html }), [html]);
+  const enhancementKey = result ? html : null;
 
   useEffect(() => {
     const root = containerRef.current;
-    if (!root) {
-      return;
-    }
-    let cancelled = false;
+    if (!root || !result) return;
+    return enhanceMarkdownImages(root, filePath, allowRemoteImages);
+  }, [allowRemoteImages, filePath, html, result]);
 
-    root.querySelectorAll("img[src]").forEach((image) => {
-      const element = image as HTMLImageElement;
-      const src = element.getAttribute("src");
-      if (!src || !filePath || /^(https?:|data:|blob:|asset:)/i.test(src)) {
-        return;
-      }
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || !result) return;
+    return enhanceMermaid(root, theme, allowRemoteImages);
+  }, [allowRemoteImages, html, result, theme]);
 
-      let relativePath: string;
-      try {
-        relativePath = decodeURIComponent(src);
-      } catch {
-        element.removeAttribute("src");
-        return;
-      }
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || enhancementKey === null) return;
+    enhanceTables(root);
+    return enhanceCodeBlocks(root);
+  }, [enhancementKey]);
 
-      void resolveMarkdownImagePath(filePath, relativePath)
-        .then((resolvedPath) => {
-          if (!cancelled && root.contains(element) && element.getAttribute("src") === src) {
-            element.src = convertFileSrc(resolvedPath);
-          }
-        })
-        .catch(() => {
-          if (!cancelled && root.contains(element) && element.getAttribute("src") === src) {
-            element.removeAttribute("src");
-          }
-        });
-    });
 
-    root.querySelectorAll("pre code.language-mermaid").forEach((node, index) => {
-      const code = node.textContent ?? "";
-      const host = document.createElement("div");
-      host.className = "mermaid-host";
-      host.textContent = code;
-      node.parentElement?.replaceWith(host);
-
-      if (!allowRemoteImages && containsRemoteResourceReference(code)) {
-        host.className = "mermaid-error";
-        host.textContent = "Remote resources in this Mermaid diagram were blocked.";
-        return;
-      }
-
-      mermaid
-        .render(`mdview-mermaid-${index}-${Date.now()}`, code)
-        .then(({ svg }) => {
-          host.innerHTML = sanitizeMermaidSvg(svg, { allowRemoteImages });
-        })
-        .catch((cause: unknown) => {
-          host.className = "mermaid-error";
-          host.textContent = cause instanceof Error ? cause.message : "Mermaid diagram failed";
-        });
-    });
-
-    // Enable task checkboxes (remove disabled) and wire change handler
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || !result) return;
     const taskCheckboxes = root.querySelectorAll<HTMLLIElement>("li.task-list-item input[type=\"checkbox\"]");
-    taskCheckboxes.forEach((cb) => {
-      cb.removeAttribute("disabled");
-      // avoid stacking listeners: clone pattern not needed because effect re-runs on html change
-    });
-
+    taskCheckboxes.forEach((checkbox) => checkbox.removeAttribute("disabled"));
     const onChange = (event: Event) => {
-      const target = event.target as HTMLElement;
-      if (!(target instanceof HTMLInputElement)) return;
-      if (!target.matches("li.task-list-item input[type=\"checkbox\"]")) return;
-      const lineAttr = target.getAttribute("data-line");
-      const line = lineAttr ? Number.parseInt(lineAttr, 10) : NaN;
-      if (Number.isFinite(line)) {
-        onToggleTask?.(line);
-      }
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || !target.matches("li.task-list-item input[type=\"checkbox\"]")) return;
+      const line = Number.parseInt(target.getAttribute("data-line") ?? "", 10);
+      if (Number.isFinite(line)) onToggleTask?.(line);
     };
     root.addEventListener("change", onChange);
-
-    highlightText(root, searchQuery);
-
-    return () => {
-      cancelled = true;
-      root.removeEventListener("change", onChange);
-    };
-  }, [allowRemoteImages, html, filePath, theme, searchQuery, onToggleTask]);
+    return () => root.removeEventListener("change", onChange);
+  }, [html, onToggleTask, result]);
 
   useEffect(() => {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: theme === "dark" ? "dark" : "default"
-    });
-  }, [theme]);
+    const root = containerRef.current;
+    if (!root || !result) return;
+    highlightText(root, searchQuery);
+  }, [html, result, searchQuery]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || !result || !pendingHeading) return;
+    scrollToHeading(root, result.headings, pendingHeading);
+    onHeadingNavigationComplete?.();
+  }, [html, onHeadingNavigationComplete, pendingHeading, result]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || !result || typeof IntersectionObserver === "undefined") return;
+    const elements = new Map<string, HTMLElement>();
+    for (const heading of result.headings) {
+      const element = Array.from(root.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"))
+        .find((candidate) => candidate.id === heading.id);
+      if (element) elements.set(heading.id, element);
+    }
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
+      if (visible[0]) onHeadingActive?.((visible[0].target as HTMLElement).id);
+    }, { root: root.parentElement, rootMargin: "-8% 0px -78% 0px", threshold: 0 });
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [html, onHeadingActive, result]);
 
   async function handleLink(anchor: Element): Promise<void> {
     const href = anchor.getAttribute("href") ?? "";
-    // Wikilink handling
     if (anchor.classList.contains("wikilink")) {
       const target = anchor.getAttribute("data-wikilink") ?? href.replace(/^#wikilink-/, "");
       const heading = anchor.getAttribute("data-heading") ?? undefined;
@@ -209,104 +146,76 @@ export function Preview({
     }
 
     const classified = classifyHref(href);
-
     if (classified.kind === "external") {
       try {
-        const confirmed = await ask(
-          `Open this link in your default browser?\n\n${classified.href}`,
-          {
-            title: "Open external link?",
-            kind: "warning"
-          }
-        );
-
-        if (confirmed) {
-          await openUrl(classified.href);
-        }
+        if (await ask(`Open this link in your default browser?\n\n${classified.href}`, {
+          title: "Open external link?", kind: "warning"
+        })) await openUrl(classified.href);
       } catch (cause: unknown) {
         const detail = cause instanceof Error ? cause.message : String(cause);
-        await message(`mdview could not open this link.\n\n${detail}`, {
-          title: "Could not open link",
-          kind: "error"
-        });
+        await message(`mdview could not open this link.\n\n${detail}`, { title: "Could not open link", kind: "error" });
       }
       return;
     }
 
     if (classified.kind === "anchor") {
-      const rawId = classified.href.slice(1);
-      let id = rawId;
-      try {
-        id = decodeURIComponent(rawId);
-      } catch {
-        // Keep the literal fragment when it is not valid percent-encoding.
-      }
-      document.getElementById(id)?.scrollIntoView({ block: "start" });
+      if (containerRef.current && result) scrollToHeading(containerRef.current, result.headings, classified.href.slice(1));
+      return;
+    }
+
+    if (classified.kind === "local") {
+      onOpenLocalLink?.(classified.path, classified.heading);
       return;
     }
 
     if (classified.kind === "file") {
-      await message(
-        "Local file links are not opened automatically from rendered Markdown. Use mdview's Open command to choose the file explicitly.",
-        {
-          title: "Local link blocked",
-          kind: "warning"
-        }
-      );
+      await message("Local file links are not opened automatically from rendered Markdown. Use mdview's Open command to choose the file explicitly.", {
+        title: "Local link blocked", kind: "warning"
+      });
       return;
     }
 
-    await message("mdview blocked this link because its protocol is not permitted.", {
-      title: "Link blocked",
-      kind: "warning"
-    });
+    await message("mdview blocked this link because its protocol is not permitted.", { title: "Link blocked", kind: "warning" });
   }
 
-  function interceptLinkEvent(event: React.MouseEvent<HTMLDivElement>): Element | null {
+  function interceptLinkEvent(event: React.MouseEvent<HTMLElement>): Element | null {
     const anchor = (event.target as Element).closest("a[href]");
-    if (!anchor) {
-      return null;
-    }
-
+    if (!anchor) return null;
     event.preventDefault();
     event.stopPropagation();
     return anchor;
   }
 
-  async function onClick(event: React.MouseEvent<HTMLDivElement>) {
-    const anchor = interceptLinkEvent(event);
-    if (anchor) {
-      await handleLink(anchor);
-    }
-  }
-
-  function onAuxClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.button !== 1) {
-      return;
-    }
-
-    const anchor = interceptLinkEvent(event);
-    if (anchor) {
-      void handleLink(anchor);
-    }
-  }
-
-  function onContextMenu(event: React.MouseEvent<HTMLDivElement>) {
-    interceptLinkEvent(event);
-  }
-
-  if (error) {
-    return <pre className="render-error">{error}</pre>;
-  }
+  if (renderState.status === "error") return <pre className="render-error">{renderState.error}</pre>;
+  if (renderState.status === "loading") return <article className="preview markdown-body" aria-busy="true"><p>Rendering Markdown…</p></article>;
 
   return (
-    <article
-      className="preview markdown-body"
-      ref={containerRef}
-      onClick={onClick}
-      onAuxClick={onAuxClick}
-      onContextMenu={onContextMenu}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      <article
+        className="preview markdown-body"
+        ref={containerRef}
+        onClick={(event) => {
+          const anchor = interceptLinkEvent(event);
+          if (anchor) void handleLink(anchor);
+          const image = (event.target as Element).closest<HTMLImageElement>("img");
+          if (image?.dataset.mdviewResource === "loaded" && image.src) {
+            setLightbox({ src: image.src, alt: image.alt });
+          }
+        }}
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          const anchor = interceptLinkEvent(event);
+          if (anchor) void handleLink(anchor);
+        }}
+        onContextMenu={(event) => { interceptLinkEvent(event); }}
+        dangerouslySetInnerHTML={htmlContent}
+      />
+      <ImageLightbox
+        open={lightbox !== null}
+        src={lightbox?.src ?? ""}
+        alt={lightbox?.alt ?? ""}
+        onClose={() => setLightbox(null)}
+      />
+    </>
   );
 }

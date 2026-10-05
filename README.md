@@ -20,6 +20,11 @@ Included now:
 - GitHub-flavored Markdown rendering.
 - Sanitized preview HTML.
 - Mermaid fenced block rendering plus standalone Mermaid block promotion from bundled app assets.
+- Generic fenced Mermaid diagrams and charts, with strict-mode rendering, sanitized SVG, and block-local errors.
+- Stable heading IDs, a collapsible Outline, and document-relative Markdown links.
+- Document-relative local images with visible failure states and an in-app lightbox.
+- Syntax-highlighted code with copy controls, expanded callouts, highlights, and footnotes.
+- Bounded KaTeX math and contained wide tables.
 - System, light, dark, paper, midnight, and sage theme preferences.
 - Recent files persisted locally.
 - Search highlighting in the rendered document.
@@ -277,6 +282,9 @@ that can affect desktop integration files.
   hardening before a public release.
 - Windows and macOS artifacts are built on native GitHub Actions runners and are
   unsigned by default.
+- The v1.3 rendering changes are undergoing packaged-app qualification; package
+  version `1.3.0` is prepared on the release branch, and publication waits for
+  the validated release PR merge.
 
 ## License
 

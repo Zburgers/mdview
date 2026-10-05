@@ -99,6 +99,17 @@ fn allow_markdown_image(
 }
 
 #[tauri::command]
+fn resolve_markdown_link_target(
+    markdown_path: String,
+    relative_path: String,
+) -> Result<String, String> {
+    resolve_markdown_link_target_path(Path::new(&markdown_path), &relative_path)?
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Markdown link target path is not valid UTF-8.".to_string())
+}
+
+#[tauri::command]
 fn write_markdown_file(path: String, contents: String) -> Result<String, String> {
     if contents.len() > MAX_MARKDOWN_BYTES {
         return Err("Markdown file exceeds the 20 MB limit.".to_string());
@@ -229,39 +240,127 @@ fn paths_alias_command(path: String, other_paths: Vec<String>) -> Result<bool, S
     Ok(false)
 }
 
+fn decode_relative_resource_path(path: &str) -> Result<String, String> {
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let high = bytes
+                .get(index + 1)
+                .and_then(|byte| (*byte as char).to_digit(16));
+            let low = bytes
+                .get(index + 2)
+                .and_then(|byte| (*byte as char).to_digit(16));
+            let (Some(high), Some(low)) = (high, low) else {
+                return Err("Markdown resource path has invalid percent encoding.".to_string());
+            };
+            decoded.push(((high << 4) | low) as u8);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    let decoded = String::from_utf8(decoded)
+        .map_err(|_| "Markdown resource path is not valid UTF-8.".to_string())?;
+    if decoded.contains('\0') {
+        return Err("Markdown resource path contains a null byte.".to_string());
+    }
+    Ok(decoded)
+}
+
+fn validate_relative_resource_path(path: &str) -> Result<PathBuf, String> {
+    if path
+        .chars()
+        .any(|character| character == '?' || character == '#')
+    {
+        return Err("Markdown resource path cannot contain a query or fragment.".to_string());
+    }
+    let decoded = decode_relative_resource_path(path)?;
+    if decoded.is_empty()
+        || decoded.starts_with('/')
+        || decoded.starts_with('\\')
+        || decoded.contains('\\')
+        || decoded.contains(':')
+    {
+        return Err("Markdown resource path must be a relative file path.".to_string());
+    }
+
+    let relative_path = PathBuf::from(decoded);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::RootDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err("Markdown resource path must be relative.".to_string());
+    }
+    Ok(relative_path)
+}
+
+fn canonical_markdown_directory(markdown_path: &Path) -> Result<PathBuf, String> {
+    ensure_markdown_like(markdown_path)?;
+    let canonical = markdown_path
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve Markdown file: {error}"))?;
+    if !fs::metadata(&canonical)
+        .map_err(|error| format!("Could not inspect Markdown file: {error}"))?
+        .is_file()
+    {
+        return Err("Markdown path is not a file.".to_string());
+    }
+    ensure_markdown_like(&canonical)?;
+    markdown_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve Markdown directory: {error}"))
+}
+
+fn resolve_markdown_link_target_path(
+    markdown_path: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, String> {
+    let relative_path = validate_relative_resource_path(relative_path)?;
+    let document_directory = canonical_markdown_directory(markdown_path)?;
+    let target = document_directory
+        .join(relative_path)
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve local Markdown link: {error}"))?;
+    ensure_markdown_like(&target)?;
+    if !fs::metadata(&target)
+        .map_err(|error| format!("Could not inspect Markdown link target: {error}"))?
+        .is_file()
+    {
+        return Err("Markdown link target is not a file.".to_string());
+    }
+    Ok(target)
+}
+
 fn resolve_markdown_image_path(markdown_path: &Path, image_path: &str) -> Result<PathBuf, String> {
     const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
     const IMAGE_EXTENSIONS: &[&str] = &[
         "avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp",
     ];
 
-    if image_path.is_empty()
-        || image_path.starts_with('/')
-        || image_path.starts_with('\\')
-        || image_path.contains(':')
-        || image_path
-            .chars()
-            .any(|character| character == '?' || character == '#')
-        || image_path.split(['/', '\\']).any(|part| part == "..")
-    {
-        return Err("Markdown image path must be a relative file path.".to_string());
-    }
+    let relative_path = validate_relative_resource_path(image_path)?;
+    let document_directory = canonical_markdown_directory(markdown_path)?;
+    let canonical_image = document_directory
+        .join(relative_path)
+        .canonicalize()
+        .map_err(|error| format!("Could not resolve local Markdown image: {error}"))?;
 
-    let relative_path = Path::new(image_path);
-    if relative_path.is_absolute()
-        || relative_path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        })
-    {
-        return Err("Markdown image path must stay within the document directory.".to_string());
+    let metadata = fs::metadata(&canonical_image)
+        .map_err(|error| format!("Could not inspect local Markdown image: {error}"))?;
+    if !metadata.is_file() {
+        return Err("Markdown image path is not a file.".to_string());
     }
-
-    let extension = relative_path
+    let extension = canonical_image
         .extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase);
@@ -270,33 +369,6 @@ fn resolve_markdown_image_path(markdown_path: &Path, image_path: &str) -> Result
         .is_some_and(|extension| IMAGE_EXTENSIONS.contains(&extension))
     {
         return Err("Markdown image path must have a supported image extension.".to_string());
-    }
-
-    ensure_markdown_like(markdown_path)?;
-    if !fs::metadata(markdown_path)
-        .map_err(|error| format!("Could not inspect Markdown file: {error}"))?
-        .is_file()
-    {
-        return Err("Markdown path is not a file.".to_string());
-    }
-    let document_directory = markdown_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .canonicalize()
-        .map_err(|error| format!("Could not resolve Markdown directory: {error}"))?;
-    let canonical_image = document_directory
-        .join(relative_path)
-        .canonicalize()
-        .map_err(|error| format!("Could not resolve local Markdown image: {error}"))?;
-    if !canonical_image.starts_with(&document_directory) {
-        return Err("Markdown image must be inside the document directory.".to_string());
-    }
-
-    let metadata = fs::metadata(&canonical_image)
-        .map_err(|error| format!("Could not inspect local Markdown image: {error}"))?;
-    if !metadata.is_file() {
-        return Err("Markdown image path is not a file.".to_string());
     }
     if metadata.len() > MAX_IMAGE_BYTES {
         return Err("Markdown image exceeds the 20 MB limit.".to_string());
@@ -793,6 +865,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_markdown_file,
             allow_markdown_image,
+            resolve_markdown_link_target,
             write_markdown_file,
             paths_alias_command,
             load_settings,
@@ -1074,37 +1147,163 @@ mod tests {
     }
 
     #[test]
-    fn markdown_image_paths_must_be_relative_images_within_the_document_directory() {
+    fn markdown_image_paths_resolve_common_document_relative_resources() {
         let directory = TestDirectory::new();
         let docs = directory.0.join("docs");
         let images = docs.join("images");
+        let assets = directory.0.join("assets");
         fs::create_dir_all(&images).expect("create image directory");
+        fs::create_dir_all(&assets).expect("create parent assets directory");
         let markdown = docs.join("readme.md");
         let image = images.join("diagram.png");
-        let outside = directory.0.join("outside.png");
-        let text = docs.join("notes.md");
+        let parent_image = assets.join("image.png");
+        let spaced_unicode = images.join("snow ☃.png");
+        let text = docs.join("notes.txt");
         fs::write(&markdown, "# Document").expect("write Markdown file");
         fs::write(&image, b"png").expect("write image");
-        fs::write(&outside, b"png").expect("write outside image");
+        fs::write(&parent_image, b"parent png").expect("write parent image");
+        fs::write(&spaced_unicode, b"unicode png").expect("write Unicode image");
         fs::write(&text, "text").expect("write non-image file");
 
-        assert_eq!(
-            resolve_markdown_image_path(&markdown, "images/diagram.png").expect("valid image"),
-            fs::canonicalize(&image).expect("canonical image")
-        );
+        for (input, expected) in [
+            ("image.png", docs.join("image.png")),
+            ("./images/diagram.png", image.clone()),
+            ("../assets/image.png", parent_image.clone()),
+            ("..%2Fassets%2Fimage.png", parent_image),
+            ("images/snow%20%E2%98%83.png", spaced_unicode),
+        ] {
+            if input == "image.png" {
+                fs::write(&expected, b"same directory png").expect("write same directory image");
+            }
+            assert_eq!(
+                resolve_markdown_image_path(&markdown, input).expect("valid image"),
+                fs::canonicalize(expected).expect("canonical image")
+            );
+        }
 
         for path in [
             "https://example.com/image.png".to_string(),
+            "file:///tmp/image.png".to_string(),
+            "asset://localhost/image.png".to_string(),
             image.to_string_lossy().to_string(),
-            "../outside.png".to_string(),
-            "images/../images/diagram.png".to_string(),
-            "notes.md".to_string(),
+            "%2Ftmp%2Fimage.png".to_string(),
+            "C%3A%5Cimage.png".to_string(),
+            "%FF.png".to_string(),
+            "%GG.png".to_string(),
+            "missing.png".to_string(),
+            "images".to_string(),
+            "notes.txt".to_string(),
+            "../docs/notes.txt".to_string(),
+            "image.svg?query".to_string(),
+            "image.svg#fragment".to_string(),
         ] {
             assert!(
                 resolve_markdown_image_path(&markdown, &path).is_err(),
                 "accepted unsafe or non-image path: {path}"
             );
         }
+    }
+
+    #[test]
+    fn markdown_image_paths_require_a_valid_markdown_document() {
+        let directory = TestDirectory::new();
+        let image = directory.0.join("image.png");
+        let not_markdown = directory.0.join("document.pdf");
+        fs::write(&image, b"png").expect("write image");
+        fs::write(&not_markdown, b"document").expect("write unsupported document");
+
+        assert!(resolve_markdown_image_path(&directory.0.join("missing.md"), "image.png").is_err());
+        assert!(resolve_markdown_image_path(&not_markdown, "image.png").is_err());
+        assert!(resolve_markdown_image_path(&directory.0, "image.png").is_err());
+    }
+
+    #[test]
+    fn markdown_link_targets_resolve_document_relative_paths_and_encoded_names() {
+        let directory = TestDirectory::new();
+        let docs = directory.0.join("docs");
+        let guides = docs.join("guides");
+        fs::create_dir_all(&guides).expect("create guides");
+        fs::create_dir_all(directory.0.join("shared")).expect("create shared");
+        let markdown = guides.join("readme.md");
+        let child = guides.join("guide.md");
+        let parent = docs.join("root.markdown");
+        let encoded = guides.join("space and ☃.txt");
+        fs::write(&markdown, "# Document").expect("write Markdown");
+        fs::write(&child, "# Child").expect("write child");
+        fs::write(&parent, "# Parent").expect("write parent");
+        fs::write(&encoded, "encoded target").expect("write encoded name");
+
+        for (input, expected) in [
+            ("guide.md", &child),
+            ("./guide.md", &child),
+            ("../root.markdown", &parent),
+            ("..%2Froot.markdown", &parent),
+            ("space%20and%20%E2%98%83.txt", &encoded),
+        ] {
+            assert_eq!(
+                resolve_markdown_link_target_path(&markdown, input).expect("valid local link"),
+                fs::canonicalize(expected).expect("canonical target")
+            );
+        }
+    }
+
+    #[test]
+    fn markdown_link_targets_reject_invalid_paths_and_documents() {
+        let directory = TestDirectory::new();
+        let docs = directory.0.join("docs");
+        fs::create_dir_all(&docs).expect("create docs");
+        let markdown = docs.join("readme.md");
+        fs::write(&markdown, "# Document").expect("write Markdown");
+        fs::write(docs.join("guide.pdf"), "pdf").expect("write unsupported target");
+        fs::create_dir(docs.join("folder.md")).expect("create directory with Markdown extension");
+
+        for path in [
+            "missing.md",
+            "folder.md",
+            "guide.pdf",
+            "/tmp/guide.md",
+            "\\\\server\\guide.md",
+            "file:///tmp/guide.md",
+            "javascript%3Aalert(1)",
+            "%2Ftmp%2Fguide.md",
+            "%GG.md",
+            "%FF.md",
+            "guide.md#section",
+        ] {
+            assert!(
+                resolve_markdown_link_target_path(&markdown, path).is_err(),
+                "accepted invalid local link target: {path}"
+            );
+        }
+
+        assert!(
+            resolve_markdown_link_target_path(&docs.join("missing.md"), "../docs/readme.md")
+                .is_err()
+        );
+        assert!(resolve_markdown_link_target_path(&docs, "readme.md").is_err());
+        assert!(resolve_markdown_link_target_path(&docs.join("guide.pdf"), "readme.md").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn markdown_link_targets_canonicalize_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TestDirectory::new();
+        let docs = directory.0.join("docs");
+        let shared = directory.0.join("shared");
+        fs::create_dir_all(&docs).expect("create docs");
+        fs::create_dir_all(&shared).expect("create shared");
+        let markdown = docs.join("readme.md");
+        let target = shared.join("guide.md");
+        fs::write(&markdown, "# Document").expect("write Markdown");
+        fs::write(&target, "# Target").expect("write target");
+        symlink(&target, docs.join("alias.md")).expect("create Markdown alias");
+
+        assert_eq!(
+            resolve_markdown_link_target_path(&markdown, "alias.md").expect("resolve alias"),
+            fs::canonicalize(target).expect("canonical target")
+        );
     }
 
     #[test]
@@ -1128,7 +1327,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn markdown_image_paths_reject_symlinks_outside_the_document_directory() {
+    fn markdown_image_paths_canonicalize_symlink_aliases_and_check_target_extension() {
         use std::os::unix::fs::symlink;
 
         let directory = TestDirectory::new();
@@ -1137,11 +1336,19 @@ mod tests {
         fs::create_dir_all(&images).expect("create image directory");
         let markdown = docs.join("readme.md");
         let outside = directory.0.join("outside.png");
+        let text = directory.0.join("outside.txt");
         fs::write(&markdown, "# Document").expect("write Markdown file");
         fs::write(&outside, b"png").expect("write outside image");
+        fs::write(&text, b"text").expect("write outside text");
         symlink(&outside, images.join("linked.png")).expect("create outside image symlink");
+        symlink(&text, images.join("text.png")).expect("create text alias");
 
-        assert!(resolve_markdown_image_path(&markdown, "images/linked.png").is_err());
+        assert_eq!(
+            resolve_markdown_image_path(&markdown, "images/linked.png")
+                .expect("resolve image alias"),
+            fs::canonicalize(outside).expect("canonical image")
+        );
+        assert!(resolve_markdown_image_path(&markdown, "images/text.png").is_err());
     }
 
     #[test]

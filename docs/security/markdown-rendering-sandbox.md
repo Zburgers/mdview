@@ -1,6 +1,6 @@
 # Markdown Rendering Sandbox
 
-This document describes the rendering and navigation boundary used by mdview `1.2.4`.
+This document describes the rendering and navigation boundary used by mdview `1.3.0`.
 
 ## Security objective
 
@@ -10,6 +10,8 @@ The preview has two rendering boundaries:
 
 1. Markdown and raw HTML are compiled by Marked, sanitized by DOMPurify, and filtered by mdview before insertion.
 2. Mermaid source is rendered separately into SVG, so it receives both a source preflight and a second SVG sanitization pass.
+
+Each Markdown render gets a fresh Marked parser session. `renderMarkdownDocument` returns sanitized HTML with heading, resource, and diagnostic metadata. The active render result feeds both Preview and Outline; search and Outline state changes reuse it. DOM enhancers add code controls, table scrolling, local-resource handling, search marks, and Mermaid viewers after sanitization. They do not parse Markdown or authorize local files.
 
 ## Markdown features that render
 
@@ -27,7 +29,12 @@ The parser uses GitHub-flavored Markdown and supports:
 - links
 - images subject to the image-resource policy
 - `details` and `summary`
+- fenced code with Highlight.js common-language highlighting and escaped plaintext fallback
+- callouts, `==highlights==`, and footnotes
+- bounded inline and block KaTeX math
 - Mermaid fenced blocks and promoted standalone Mermaid diagrams
+- stable heading IDs and Outline metadata
+- document-relative Markdown links, resolved only after a click
 
 ## HTML allowlist
 
@@ -39,19 +46,24 @@ Raw HTML is never trusted as an unrestricted document. The sanitized preview all
 - `code`
 - `del`
 - `details`
+- `div`
 - `em`
 - `h1` through `h6`
 - `hr`
 - `img`
 - `input`, restricted after sanitization to disabled checkboxes generated for task lists
 - `li`, `ol`, and `ul`
+- `mark`
 - `p`
 - `pre`
+- `section`, `span`, and `sup`
 - `strong`
 - `summary`
 - `table`, `thead`, `tbody`, `tr`, `th`, and `td`
 
-Allowed attributes are limited to formatting and navigation metadata used by those elements: `alt`, `checked`, `class`, `disabled`, `href`, `rel`, `src`, `title`, `type`, and the controlled `target` attribute.
+Allowed attributes are limited to formatting and renderer metadata: `align`, `alt`, `aria-describedby`, `aria-label`, `checked`, `class`, `disabled`, `href`, `id`, `open`, `rel`, `src`, `title`, `type`, and specific `data-*` attributes for tasks, callouts, footnotes, math, code, and wikilinks. The sanitizer also permits `target` for the existing link handling; Preview intercepts activation and prevents browser navigation. Heading IDs come from renderer metadata; untrusted input cannot choose them. KaTeX output passes through a separate sanitizer that permits its generated inline styles, while arbitrary Markdown style attributes remain blocked.
+
+Footnote IDs are retained only on the expected footnote section, list entries, and reference anchors. Highlighted code is generated before the main sanitizer so its `span` elements and classes pass through the same HTML boundary. Unknown and unlabelled code fences are escaped plaintext.
 
 The following active-content surfaces are explicitly removed:
 
@@ -75,11 +87,11 @@ Remote images are blocked by default before sanitized HTML is inserted into the 
 
 Allowed document inputs by default:
 
-- relative image paths resolved from the opened Markdown file's directory
+- relative image paths resolved from the opened Markdown file's directory, including `../` references to parent folders
 - blob URLs
 - raster image data URLs for AVIF, BMP, GIF, JPEG, PNG, WebP, and supported icon formats
 
-Relative paths do not enter the preview as privileged URLs. After the document source has passed the image policy, mdview resolves the path against the opened document and creates the Tauri asset URL itself.
+Relative paths do not enter the preview as privileged URLs. After the document source has passed the image policy, Rust decodes percent-encoded path bytes once, resolves and canonicalizes the path against the opened document, and requires a regular file with a supported image extension no larger than 20 MiB. mdview then creates the Tauri asset URL itself. Canonicalization also resolves filesystem aliases before authorization.
 
 Blocked document inputs by default:
 
@@ -93,7 +105,7 @@ Blocked document inputs by default:
 
 When **Remote Images** is explicitly enabled, HTTP and HTTPS images are permitted. Protocol-relative image URLs are normalized to HTTPS.
 
-Blocked image elements retain their alternative text but lose the source attribute, preventing a request from being issued.
+Blocked or unresolved images retain their alternative text and show an inline placeholder; their document-supplied source is removed before any request can be issued.
 
 ## Mermaid boundary
 
@@ -106,6 +118,8 @@ Mermaid does not share the ordinary Markdown HTML pipeline. It generates SVG aft
 5. Scripts, `foreignObject`, iframes, objects, and embeds are forbidden.
 6. Generated SVG image elements receive the same URL policy as ordinary Markdown images, including rejection of privileged schemes and SVG data documents.
 7. Remote `href`, `xlink:href`, `src`, and remote style references are stripped from generated SVG unless remote images are enabled.
+
+Diagram errors, including malformed source and blocked resource references, stay inside that diagram's viewer. Expanded-view and source-copy controls use the sanitized SVG and inert source text.
 
 The source preflight is deliberately conservative. A Mermaid label containing a literal external URL may be blocked even when it was intended only as text. This is preferable to starting a network request before post-render SVG sanitization can run.
 
@@ -121,7 +135,9 @@ For every Markdown link:
 - confirmed links open through the Tauri opener in the operating system's default browser
 - declined links remain unopened
 - opener failures are reported in a native error dialog
-- local file links are not opened automatically
+- ordinary relative Markdown/text links (including `../` and percent-encoded paths) are resolved and canonicalized by Rust only after a click, then opened through mdview's existing tab path; targets must exist, be regular files, and use a supported Markdown/text extension
+- local links are never resolved during rendering, hover, or automatic resource loading
+- absolute paths and URI schemes supplied as document links remain blocked
 - unsupported schemes such as `javascript:`, `mailto:`, or custom protocols are blocked and explained in a native dialog
 - same-document fragment links only scroll to an existing element ID
 
@@ -138,7 +154,7 @@ The Tauri webview content-security policy provides a second containment layer:
 
 ## Validation coverage
 
-The `1.2.4` regression suite covers:
+The current rendering branch's regression suite covers:
 
 - script and active HTML removal
 - the raw HTML allowlist
@@ -152,6 +168,12 @@ The `1.2.4` regression suite covers:
 - Mermaid source network-resource detection
 - Mermaid SVG script and image-resource policy enforcement
 - native external-link confirmation
+- document-relative Markdown link canonicalization, percent decoding, aliases, missing/directory/unsupported targets, and privileged/absolute-path rejection
+- parent-relative local image resolution, percent decoding, aliases, and existing file/extension/20 MiB checks
+- one kitchen-sink Markdown corpus covering heading levels, duplicate IDs, rich blocks, resource metadata, and hostile raw HTML
+- failure isolation for malformed math, Mermaid, unknown code languages, missing images, and broken local links
+- deterministic 512-section render completion and heading/resource counts
+- one-parse App behavior when search or Outline state changes
 - declined and failed browser opens
 - blocked protocol messaging
 - link context-menu suppression
@@ -161,5 +183,5 @@ The `1.2.4` regression suite covers:
 
 - DOMPurify, Marked, Mermaid, Tauri, and the platform webview remain security dependencies and should be kept updated.
 - The remote-image setting is global application state, not a per-document trust decision.
-- Local relative image loading intentionally permits a document to display files referenced relative to its own location.
+- Local relative image loading intentionally permits a document to display supported images referenced relative to its location, including images in parent folders.
 - mdview does not currently provide a host allowlist, one-time image consent, or per-document remembered trust.

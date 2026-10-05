@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkForUpdates, compareVersions, isValidVersion } from "../../../src/lib/tauri";
+import { checkForUpdates, compareVersions, isValidVersion, resolveMarkdownImagePath, resolveMarkdownLinkTarget } from "../../../src/lib/tauri";
 
-const { checkMock, relaunchMock, getVersionMock } = vi.hoisted(() => ({
+const { checkMock, relaunchMock, getVersionMock, invokeMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
   relaunchMock: vi.fn(),
-  getVersionMock: vi.fn(() => Promise.resolve("1.2.4"))
+  getVersionMock: vi.fn(() => Promise.resolve("1.2.4")),
+  invokeMock: vi.fn()
 }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: getVersionMock }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: checkMock }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: relaunchMock }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@tauri-apps/api/webviewWindow", () => ({ WebviewWindow: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 
@@ -93,5 +94,25 @@ describe("updater version safety", () => {
     relaunchMock.mockRejectedValue(new Error("restart denied"));
     await expect(checkForUpdates()).rejects.toThrow("Update 1.2.5 installed, but mdview could not restart: restart denied");
     expect(downloadAndInstall).toHaveBeenCalledOnce();
+  });
+});
+
+describe("local resource bridge", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("passes document-relative Markdown paths to the Rust authorization commands", async () => {
+    invokeMock.mockResolvedValue("/docs/guide.md");
+    await expect(resolveMarkdownLinkTarget("/docs/readme.md", "../guide.md")).resolves.toBe("/docs/guide.md");
+    expect(invokeMock).toHaveBeenCalledWith("resolve_markdown_link_target", {
+      markdownPath: "/docs/readme.md",
+      relativePath: "../guide.md"
+    });
+
+    invokeMock.mockResolvedValue("/assets/image.png");
+    await expect(resolveMarkdownImagePath("/docs/readme.md", "../assets/image.png")).resolves.toBe("/assets/image.png");
+    expect(invokeMock).toHaveBeenLastCalledWith("allow_markdown_image", {
+      markdownPath: "/docs/readme.md",
+      imagePath: "../assets/image.png"
+    });
   });
 });
