@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.5]
+
+### Added
+- Added multi-tab editing with unsaved-change protection for reloads, tab closure, and native window closure.
+- Added task-list checkbox synchronization, foldable callouts, wikilinks with heading navigation, and KaTeX math rendering.
+- Added Markdown-relative attachments for pasted and dropped files.
+
+### Fixed
+- Bounded Markdown reads and made writes atomic, with symlink and path-containment checks.
+- Blocked Mermaid SVG remote resources hidden by CSS escapes, comments, and special-scheme URLs.
+- Hardened release version, tag, and updater-manifest validation before native bundle publishing.
+
 ## [1.2.4]
 
 _Unreleased release candidate_

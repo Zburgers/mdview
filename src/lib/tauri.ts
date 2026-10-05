@@ -36,8 +36,21 @@ export function readMarkdownFile(path: string): Promise<ReadFileResponse> {
   return invoke("read_markdown_file", { path });
 }
 
+export function resolveMarkdownImagePath(markdownPath: string, imagePath: string): Promise<string> {
+  return invoke("allow_markdown_image", { markdownPath, imagePath });
+}
+
 export function writeMarkdownFile(path: string, contents: string): Promise<string> {
   return invoke("write_markdown_file", { path, contents });
+}
+
+export function pathsAlias(path: string, otherPaths: string[]): Promise<boolean> {
+  return invoke("paths_alias_command", { path, otherPaths });
+}
+
+// ponytail: JSON byte arrays amplify memory for 20 MiB files; use raw Tauri invoke bytes if this becomes a real limit.
+export function writeAttachmentBytes(markdownPath: string, name: string, contents: Uint8Array): Promise<string> {
+  return invoke("write_attachment_bytes", { markdownPath, name, contents: Array.from(contents) });
 }
 
 export function loadSettings(): Promise<AppSettings> {
@@ -58,6 +71,10 @@ export async function getNativeAppVersion(): Promise<string> {
 
 export function startupOpenFile(): Promise<string | null> {
   return invoke("startup_open_file");
+}
+
+export function copyAttachment(src: string, markdownPath: string, dest: string): Promise<string> {
+  return invoke("copy_attachment", { src, markdownPath, dest });
 }
 
 export function openMarkdownWindow(path: string): Promise<void> {

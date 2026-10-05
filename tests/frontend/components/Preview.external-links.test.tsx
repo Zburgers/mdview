@@ -9,6 +9,7 @@ const {
   renderMarkdownMock,
   highlightTextMock,
   convertFileSrcMock,
+  resolveMarkdownImagePathMock,
   mermaidInitializeMock,
   mermaidRenderMock,
   sanitizeMermaidSvgMock,
@@ -20,11 +21,13 @@ const {
   renderMarkdownMock: vi.fn(),
   highlightTextMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `tauri://localhost/${path}`),
+  resolveMarkdownImagePathMock: vi.fn(),
   mermaidInitializeMock: vi.fn(),
   mermaidRenderMock: vi.fn(),
   sanitizeMermaidSvgMock: vi.fn((svg: string) => svg),
   containsRemoteResourceReferenceMock: vi.fn()
 }));
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: askMock,
@@ -37,6 +40,10 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: convertFileSrcMock
+}));
+
+vi.mock("../../../src/lib/tauri", () => ({
+  resolveMarkdownImagePath: resolveMarkdownImagePathMock
 }));
 
 vi.mock("mermaid", () => ({
@@ -59,6 +66,7 @@ vi.mock("../../../src/lib/markdown", () => ({
 describe("Preview external link handling", () => {
   afterEach(() => {
     cleanup();
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 
   beforeEach(() => {
@@ -68,11 +76,65 @@ describe("Preview external link handling", () => {
     renderMarkdownMock.mockReset();
     highlightTextMock.mockReset();
     convertFileSrcMock.mockClear();
+    resolveMarkdownImagePathMock.mockReset();
     mermaidInitializeMock.mockClear();
     mermaidRenderMock.mockReset();
     sanitizeMermaidSvgMock.mockClear();
     containsRemoteResourceReferenceMock.mockReset();
     containsRemoteResourceReferenceMock.mockReturnValue(false);
+  });
+
+  it("resolves local images through the Rust path policy before converting them", async () => {
+    renderMarkdownMock.mockResolvedValue('<p><img src="images/diagram.png" alt="Diagram"></p>');
+    resolveMarkdownImagePathMock.mockResolvedValue("/tmp/docs/images/diagram.png");
+
+    render(
+      <Preview
+        markdown="![Diagram](images/diagram.png)"
+        filePath="/tmp/docs/readme.md"
+        theme="light"
+        searchQuery=""
+      />
+    );
+
+    const image = await screen.findByRole("img", { name: "Diagram" });
+    await waitFor(() => {
+      expect(resolveMarkdownImagePathMock).toHaveBeenCalledWith(
+        "/tmp/docs/readme.md",
+        "images/diagram.png"
+      );
+      expect(convertFileSrcMock).toHaveBeenCalledWith("/tmp/docs/images/diagram.png");
+      expect(image).toHaveAttribute("src", "tauri://localhost//tmp/docs/images/diagram.png");
+    });
+  });
+
+  it("waits for the requested heading to finish rendering before scrolling", async () => {
+    let finishRender!: (html: string) => void;
+    renderMarkdownMock.mockReturnValue(new Promise((resolve) => {
+      finishRender = resolve;
+    }));
+    const events: string[] = [];
+    const scrollIntoView = vi.fn(() => events.push("scroll"));
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    const onHeadingNavigationComplete = vi.fn(() => events.push("complete"));
+
+    render(
+      <Preview
+        markdown="# Target heading"
+        filePath="/tmp/note.md"
+        theme="light"
+        searchQuery=""
+        scrollToHeading="Target heading"
+        onHeadingNavigationComplete={onHeadingNavigationComplete}
+      />
+    );
+
+    expect(onHeadingNavigationComplete).not.toHaveBeenCalled();
+    finishRender("<h1>Target heading</h1>");
+
+    await waitFor(() => expect(onHeadingNavigationComplete).toHaveBeenCalledOnce());
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(events).toEqual(["scroll", "complete"]);
   });
 
   it("confirms before opening an external https link in the system browser", async () => {
