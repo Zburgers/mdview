@@ -10,6 +10,7 @@ import {
   pathsAlias,
   openMarkdownDialog,
   readMarkdownFile,
+  resolveMarkdownLinkTarget,
   saveMarkdownDialog,
   saveSettings,
   startupOpenFile,
@@ -20,6 +21,8 @@ import {
 const eventMocks = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: unknown }) => void>()
 }));
+const renderMarkdownDocumentMock = vi.hoisted(() => vi.fn());
+vi.mock("../../../src/rendering/render", () => ({ renderMarkdownDocument: renderMarkdownDocumentMock }));
 
 const closeMock = vi.fn(() => Promise.resolve());
 const destroyMock = vi.fn(() => Promise.resolve());
@@ -53,23 +56,30 @@ vi.mock("@tauri-apps/api/window", () => ({
 }));
 
 vi.mock("../../../src/components/Preview", () => ({
-  Preview: ({ markdown, onOpenWikilink, onToggleTask }: {
-    markdown: string;
+  Preview: ({ renderState, onOpenWikilink, onToggleTask, onOpenLocalLink }: {
+    renderState: { status: string; result: { html: string } | null };
     onOpenWikilink?: (target: string) => void;
     onToggleTask?: (line: number) => void;
-  }) => (
+    onOpenLocalLink?: (path: string, heading?: string) => void;
+  }) => {
+    const html = renderState.status === "success" ? renderState.result?.html ?? "" : "";
+    return (
     <>
       <article className="preview markdown-body" data-testid="preview">
-        {markdown}
+        <span dangerouslySetInnerHTML={{ __html: html }} />
       </article>
-      {markdown.includes("[[Target]]") ? (
+      {html.includes("[[Target]]") ? (
         <button type="button" onClick={() => onOpenWikilink?.("Target")}>Open test wikilink</button>
       ) : null}
-      {markdown.includes("1. [ ] ordered task") ? (
+      {html.includes("1. [ ] ordered task") ? (
         <button type="button" onClick={() => onToggleTask?.(0)}>Toggle test task</button>
       ) : null}
+      {html.includes("[Guide](../guide.md#Install)") ? (
+        <button type="button" onClick={() => onOpenLocalLink?.("../guide.md", "Install")}>Open test local link</button>
+      ) : null}
     </>
-  )
+    );
+  }
 }));
 
 vi.mock("../../../src/lib/tauri", () => ({
@@ -81,6 +91,7 @@ vi.mock("../../../src/lib/tauri", () => ({
   startupOpenFile: vi.fn(),
   writeMarkdownFile: vi.fn(),
   pathsAlias: vi.fn(() => Promise.resolve(false)),
+  resolveMarkdownLinkTarget: vi.fn(),
   writeAttachmentBytes: vi.fn(),
   checkForUpdates: vi.fn(),
   getNativeAppVersion: vi.fn(() => Promise.resolve("1.2.4")),
@@ -107,6 +118,10 @@ function makeOversizedFile(name: string, type: string) {
 
 describe("App desktop layout", () => {
   beforeEach(() => {
+    renderMarkdownDocumentMock.mockReset();
+    renderMarkdownDocumentMock.mockImplementation(async (markdown: string) => ({
+      html: `<p>${markdown}</p>`, headings: [], resources: [], diagnostics: []
+    }));
     vi.mocked(loadSettings).mockResolvedValue({
       ...defaultSettings,
       viewMode: "split",
@@ -126,6 +141,7 @@ describe("App desktop layout", () => {
     vi.mocked(pathsAlias).mockResolvedValue(false);
     vi.mocked(writeAttachmentBytes).mockClear();
     vi.mocked(writeAttachmentBytes).mockResolvedValue("/tmp/assets/photo.png");
+    vi.mocked(resolveMarkdownLinkTarget).mockReset();
     vi.mocked(checkForUpdates).mockResolvedValue({ status: "current", currentVersion: "1.2.2" });
     vi.mocked(openMarkdownWindow).mockResolvedValue(undefined);
     vi.mocked(saveSettings).mockClear();
@@ -144,6 +160,40 @@ describe("App desktop layout", () => {
       configurable: true,
       value: matchMediaMock
     });
+  });
+
+  it("renders once per Markdown change and does not parse when search changes", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("New Markdown File"));
+    const source = await screen.findByPlaceholderText("Markdown source");
+    await waitFor(() => expect(renderMarkdownDocumentMock).toHaveBeenCalled());
+    const initialCalls = renderMarkdownDocumentMock.mock.calls.length;
+
+    fireEvent.change(source, { target: { value: "# First heading" } });
+    await waitFor(() => expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(initialCalls + 1));
+    const markdownCalls = renderMarkdownDocumentMock.mock.calls.length;
+    fireEvent.change(screen.getByPlaceholderText("Search document"), { target: { value: "heading" } });
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Search document")).toHaveValue("heading"));
+    expect(renderMarkdownDocumentMock).toHaveBeenCalledTimes(markdownCalls);
+  });
+
+  it("resolves ordinary relative links and opens them through the existing tab path", async () => {
+    vi.mocked(openMarkdownDialog).mockResolvedValue("/tmp/docs/current.md");
+    vi.mocked(readMarkdownFile).mockImplementation(async (path) => ({
+      path,
+      contents: path === "/tmp/docs/current.md" ? "[Guide](../guide.md#Install)" : "# Install",
+      lossy: false
+    }));
+    vi.mocked(resolveMarkdownLinkTarget).mockResolvedValue("/tmp/guide.md");
+
+    render(<App />);
+    fireEvent.click(await screen.findByTitle("Open Markdown File"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open test local link" }));
+
+    await waitFor(() => expect(resolveMarkdownLinkTarget).toHaveBeenCalledWith("/tmp/docs/current.md", "../guide.md"));
+    await waitFor(() => expect(readMarkdownFile).toHaveBeenCalledWith("/tmp/guide.md"));
+    expect(screen.getByRole("tab", { name: "guide.md" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("waits for saved settings before writing preferences", async () => {

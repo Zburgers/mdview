@@ -3,15 +3,18 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Cpu, FileText, FolderOpen, Layers, Plus, Printer, RefreshCw, Sparkles, X } from "lucide-react";
 import { WindowTitleBar } from "./components/layout/WindowTitleBar";
+import { OutlinePanel } from "./components/OutlinePanel";
 import { Preview } from "./components/Preview";
 import { RecentFiles, Toolbar } from "./components/Toolbar";
 import { defaultSettings } from "./lib/defaults";
 import { getMarkdownFileName, isMarkdownLikePath, normalizeMarkdownText } from "./lib/markdown";
+import { useMarkdownRender } from "./rendering/useMarkdownRender";
 import {
   checkForUpdates,
   getNativeAppVersion,
   copyAttachment,
   pathsAlias,
+  resolveMarkdownLinkTarget,
   loadSettings,
   openMarkdownWindow,
   openMarkdownDialog,
@@ -99,6 +102,9 @@ export default function App() {
   const [pendingActionLabel, setPendingActionLabel] = useState<string | null>(null);
   const [isResolvingPendingAction, setIsResolvingPendingAction] = useState(false);
   const [pendingHeadingNavigation, setPendingHeadingNavigation] = useState<PendingHeadingNavigation | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [outlineOverlay, setOutlineOverlay] = useState(false);
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const sourceRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -114,6 +120,7 @@ export default function App() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? createInitialTab(),
     [activeTabId, tabs]
   );
+  const renderState = useMarkdownRender(documentState.markdown, settings.allowRemoteImages);
   const hasUnsavedTabs = tabs.some((tab) => tab.dirty);
   const activeHeadingNavigation = pendingHeadingNavigation?.tabId === documentState.id
     ? pendingHeadingNavigation
@@ -136,6 +143,10 @@ export default function App() {
 
     return (documentState.markdown.match(new RegExp(escapeRegExp(query), "gi")) ?? []).length;
   }, [documentState.markdown, searchQuery]);
+
+  useEffect(() => {
+    setActiveHeadingId(null);
+  }, [documentState.id, documentState.markdown]);
 
   useEffect(() => {
     getNativeAppVersion()
@@ -167,6 +178,14 @@ export default function App() {
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const update = () => setSystemDark(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const update = () => setOutlineOverlay(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
@@ -680,6 +699,20 @@ export default function App() {
     setStatus(`Linked note not found: ${target}${heading ? `#${heading}` : ""}`);
   }
 
+  async function handleOpenLocalLink(relativePath: string, heading?: string) {
+    if (!documentState.path) {
+      setStatus("Save the current document before opening a relative link.");
+      return;
+    }
+    try {
+      const resolvedPath = await resolveMarkdownLinkTarget(documentState.path, relativePath);
+      const outcome = await openPath(resolvedPath, heading);
+      if (outcome === "missing") setStatus(`Linked document not found: ${relativePath}`);
+    } catch (cause) {
+      setStatus(cause instanceof Error ? cause.message : "Could not resolve the linked document.");
+    }
+  }
+
   function insertAtCursor(insertText: string) {
     const el = sourceRef.current;
     if (!el) {
@@ -918,6 +951,7 @@ export default function App() {
         query={searchQuery}
         searchMatchCount={searchMatchCount}
         syncScroll={settings.syncScroll}
+        outlineOpen={outlineOpen}
         appVersion={appVersion ?? "Version unavailable"}
         onNewFile={handleNewFile}
         onOpen={handleOpen}
@@ -930,6 +964,7 @@ export default function App() {
         onThemeChange={(theme: ThemePreference) => updateSettings({ theme })}
         onQueryChange={setSearchQuery}
         onSyncScrollChange={(syncScroll) => updateSettings({ syncScroll })}
+        onToggleOutline={() => setOutlineOpen((open) => !open)}
       />
 
       <div className="tab-strip" role="tablist" aria-label="Open Markdown files">
@@ -1054,6 +1089,17 @@ export default function App() {
         ) : null}
 
 
+        {!emptyState && (
+          <OutlinePanel
+            headings={renderState.status === "success" ? renderState.result.headings : []}
+            activeHeadingId={activeHeadingId}
+            open={outlineOpen}
+            overlay={outlineOverlay}
+            onOpenChange={setOutlineOpen}
+            onNavigate={(headingId) => setPendingHeadingNavigation({ tabId: documentState.id, heading: headingId })}
+          />
+        )}
+
         {!emptyState && (settings.viewMode === "split" || settings.viewMode === "source") && (
           <div className="source-wrap">
             {!documentState.path && documentState.markdown.length === 0 ? (
@@ -1087,13 +1133,15 @@ export default function App() {
         {!emptyState && (settings.viewMode === "reader" || settings.viewMode === "split") && (
           <div className="preview-scroll" ref={previewRef}>
             <Preview
-              markdown={documentState.markdown}
+              renderState={renderState}
               filePath={documentState.path}
               theme={previewTheme}
               searchQuery={searchQuery}
               allowRemoteImages={settings.allowRemoteImages}
               onToggleTask={handleToggleTask}
               onOpenWikilink={handleOpenWikilink}
+              onOpenLocalLink={handleOpenLocalLink}
+              onHeadingActive={setActiveHeadingId}
               scrollToHeading={activeHeadingNavigation?.heading}
               onHeadingNavigationComplete={completeHeadingNavigation}
             />

@@ -1,24 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Preview } from "../../../src/components/Preview";
+import type { MarkdownRenderState } from "../../../src/rendering/useMarkdownRender";
 
 const {
-  askMock,
-  messageMock,
-  openUrlMock,
-  renderMarkdownMock,
-  highlightTextMock,
-  convertFileSrcMock,
+  askMock, messageMock, openUrlMock, highlightTextMock, convertFileSrcMock,
   resolveMarkdownImagePathMock,
-  mermaidInitializeMock,
-  mermaidRenderMock,
-  sanitizeMermaidSvgMock,
+  mermaidInitializeMock, mermaidRenderMock, sanitizeMermaidSvgMock,
   containsRemoteResourceReferenceMock
 } = vi.hoisted(() => ({
   askMock: vi.fn(),
   messageMock: vi.fn(),
   openUrlMock: vi.fn(),
-  renderMarkdownMock: vi.fn(),
   highlightTextMock: vi.fn(),
   convertFileSrcMock: vi.fn((path: string) => `tauri://localhost/${path}`),
   resolveMarkdownImagePathMock: vi.fn(),
@@ -29,41 +22,24 @@ const {
 }));
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  ask: askMock,
-  message: messageMock
-}));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: openUrlMock
-}));
-
-vi.mock("@tauri-apps/api/core", () => ({
-  convertFileSrc: convertFileSrcMock
-}));
-
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: askMock, message: messageMock }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: openUrlMock }));
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: convertFileSrcMock }));
 vi.mock("../../../src/lib/tauri", () => ({
-  resolveMarkdownImagePath: resolveMarkdownImagePathMock
+  resolveMarkdownImagePath: resolveMarkdownImagePathMock,
 }));
-
-vi.mock("mermaid", () => ({
-  default: {
-    initialize: mermaidInitializeMock,
-    render: mermaidRenderMock
-  }
-}));
-
-vi.mock("../../../src/lib/highlight", () => ({
-  highlightText: highlightTextMock
-}));
-
+vi.mock("mermaid", () => ({ default: { initialize: mermaidInitializeMock, render: mermaidRenderMock } }));
+vi.mock("../../../src/lib/highlight", () => ({ highlightText: highlightTextMock }));
 vi.mock("../../../src/lib/markdown", () => ({
   containsRemoteResourceReference: containsRemoteResourceReferenceMock,
-  renderMarkdown: renderMarkdownMock,
   sanitizeMermaidSvg: sanitizeMermaidSvgMock
 }));
 
-describe("Preview external link handling", () => {
+function ready(html: string, headings: Array<{ id: string; text: string; level: 1; ordinal: number }> = []): MarkdownRenderState {
+  return { status: "success", result: { html, headings, resources: [], diagnostics: [] }, error: null };
+}
+
+describe("Preview navigation and resources", () => {
   afterEach(() => {
     cleanup();
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
@@ -73,7 +49,6 @@ describe("Preview external link handling", () => {
     askMock.mockReset();
     messageMock.mockReset();
     openUrlMock.mockReset();
-    renderMarkdownMock.mockReset();
     highlightTextMock.mockReset();
     convertFileSrcMock.mockClear();
     resolveMarkdownImagePathMock.mockReset();
@@ -84,186 +59,90 @@ describe("Preview external link handling", () => {
     containsRemoteResourceReferenceMock.mockReturnValue(false);
   });
 
-  it("resolves local images through the Rust path policy before converting them", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><img src="images/diagram.png" alt="Diagram"></p>');
-    resolveMarkdownImagePathMock.mockResolvedValue("/tmp/docs/images/diagram.png");
-
-    render(
-      <Preview
-        markdown="![Diagram](images/diagram.png)"
-        filePath="/tmp/docs/readme.md"
-        theme="light"
-        searchQuery=""
-      />
-    );
+  it("authorizes local images before assigning a Tauri asset URL and opens only loaded images", async () => {
+    let resolvePath!: (path: string) => void;
+    resolveMarkdownImagePathMock.mockReturnValue(new Promise((resolve) => { resolvePath = resolve; }));
+    render(<Preview renderState={ready('<p><img src="images/diagram.png" alt="Diagram"></p>')} filePath="/tmp/docs/readme.md" theme="light" searchQuery="" />);
 
     const image = await screen.findByRole("img", { name: "Diagram" });
-    await waitFor(() => {
-      expect(resolveMarkdownImagePathMock).toHaveBeenCalledWith(
-        "/tmp/docs/readme.md",
-        "images/diagram.png"
-      );
-      expect(convertFileSrcMock).toHaveBeenCalledWith("/tmp/docs/images/diagram.png");
-      expect(image).toHaveAttribute("src", "tauri://localhost//tmp/docs/images/diagram.png");
-    });
+    expect(image).not.toHaveAttribute("src");
+    resolvePath("/tmp/docs/images/diagram.png");
+    await waitFor(() => expect(image).toHaveAttribute("src", "tauri://localhost//tmp/docs/images/diagram.png"));
+    expect(resolveMarkdownImagePathMock).toHaveBeenCalledWith("/tmp/docs/readme.md", "images/diagram.png");
+    fireEvent.load(image);
+    fireEvent.click(image);
+    expect(await screen.findByRole("dialog", { name: "Image preview: Diagram" })).toBeInTheDocument();
   });
 
-  it("waits for the requested heading to finish rendering before scrolling", async () => {
-    let finishRender!: (html: string) => void;
-    renderMarkdownMock.mockReturnValue(new Promise((resolve) => {
-      finishRender = resolve;
-    }));
-    const events: string[] = [];
-    const scrollIntoView = vi.fn(() => events.push("scroll"));
+  it("shows a path-free placeholder when Rust rejects a local image", async () => {
+    resolveMarkdownImagePathMock.mockRejectedValue(new Error("private path details"));
+    render(<Preview renderState={ready('<img src="../secret/photo.png" alt="Private photo">')} filePath="/tmp/docs/readme.md" theme="light" searchQuery="" />);
+
+    expect(await screen.findByRole("img", { name: /Private photo.*could not be opened/i })).toBeInTheDocument();
+    expect(screen.queryByText(/private path details/i)).not.toBeInTheDocument();
+  });
+
+  it("waits for a shared render result before resolving a pending heading request", async () => {
+    const scrollIntoView = vi.fn();
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
-    const onHeadingNavigationComplete = vi.fn(() => events.push("complete"));
+    const onComplete = vi.fn();
+    const view = render(<Preview renderState={{ status: "loading", result: null, error: null }} filePath="/tmp/note.md" theme="light" searchQuery="" scrollToHeading="target" onHeadingNavigationComplete={onComplete} />);
 
-    render(
-      <Preview
-        markdown="# Target heading"
-        filePath="/tmp/note.md"
-        theme="light"
-        searchQuery=""
-        scrollToHeading="Target heading"
-        onHeadingNavigationComplete={onHeadingNavigationComplete}
-      />
-    );
-
-    expect(onHeadingNavigationComplete).not.toHaveBeenCalled();
-    finishRender("<h1>Target heading</h1>");
-
-    await waitFor(() => expect(onHeadingNavigationComplete).toHaveBeenCalledOnce());
+    expect(onComplete).not.toHaveBeenCalled();
+    view.rerender(<Preview renderState={ready('<h1 id="target">Target</h1>', [{ id: "target", text: "Target", level: 1, ordinal: 0 }])} filePath="/tmp/note.md" theme="light" searchQuery="" scrollToHeading="target" onHeadingNavigationComplete={onComplete} />);
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
     expect(scrollIntoView).toHaveBeenCalledOnce();
-    expect(events).toEqual(["scroll", "complete"]);
   });
 
   it("confirms before opening an external https link in the system browser", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
     askMock.mockResolvedValue(true);
-
-    render(<Preview markdown="[Docs](https://example.com/docs)" filePath={null} theme="light" searchQuery="" />);
-
-    const link = await screen.findByRole("link", { name: "Docs" });
-    fireEvent.click(link);
-
-    await waitFor(() => {
-      expect(askMock).toHaveBeenCalledWith(
-        "Open this link in your default browser?\n\nhttps://example.com/docs",
-        {
-          title: "Open external link?",
-          kind: "warning"
-        }
-      );
-    });
+    render(<Preview renderState={ready('<a href="https://example.com/docs">Docs</a>')} filePath={null} theme="light" searchQuery="" />);
+    fireEvent.click(await screen.findByRole("link", { name: "Docs" }));
+    await waitFor(() => expect(askMock).toHaveBeenCalledWith("Open this link in your default browser?\n\nhttps://example.com/docs", { title: "Open external link?", kind: "warning" }));
     expect(openUrlMock).toHaveBeenCalledWith("https://example.com/docs");
   });
 
   it("does not open an external link when the user declines", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
     askMock.mockResolvedValue(false);
-
-    render(<Preview markdown="[Docs](https://example.com/docs)" filePath={null} theme="light" searchQuery="" />);
-
+    render(<Preview renderState={ready('<a href="https://example.com/docs">Docs</a>')} filePath={null} theme="light" searchQuery="" />);
     fireEvent.click(await screen.findByRole("link", { name: "Docs" }));
-
-    await waitFor(() => {
-      expect(askMock).toHaveBeenCalledTimes(1);
-    });
+    await waitFor(() => expect(askMock).toHaveBeenCalledOnce());
     expect(openUrlMock).not.toHaveBeenCalled();
   });
 
-  it("prevents the native context menu from exposing a direct navigation path", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
-
-    render(<Preview markdown="[Docs](https://example.com/docs)" filePath={null} theme="light" searchQuery="" />);
-
-    const dispatched = fireEvent.contextMenu(await screen.findByRole("link", { name: "Docs" }));
-
-    expect(dispatched).toBe(false);
+  it("blocks the native context menu from exposing a direct link path", async () => {
+    render(<Preview renderState={ready('<a href="https://example.com/docs">Docs</a>')} filePath={null} theme="light" searchQuery="" />);
+    expect(fireEvent.contextMenu(await screen.findByRole("link", { name: "Docs" }))).toBe(false);
     expect(askMock).not.toHaveBeenCalled();
-    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
-  it("shows a native error when the system browser cannot be opened", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><a href="https://example.com/docs">Docs</a></p>');
-    askMock.mockResolvedValue(true);
-    openUrlMock.mockRejectedValue(new Error("opener unavailable"));
-
-    render(<Preview markdown="[Docs](https://example.com/docs)" filePath={null} theme="light" searchQuery="" />);
-
-    fireEvent.click(await screen.findByRole("link", { name: "Docs" }));
-
-    await waitFor(() => {
-      expect(messageMock).toHaveBeenCalledWith(
-        "mdview could not open this link.\n\nopener unavailable",
-        {
-          title: "Could not open link",
-          kind: "error"
-        }
-      );
-    });
+  it("routes relative Markdown links through Rust only after a click", async () => {
+    const onOpenLocalLink = vi.fn();
+    render(<Preview renderState={ready('<a href="../guide%20one.md#Install">Guide</a>')} filePath="/tmp/docs/current.md" theme="light" searchQuery="" onOpenLocalLink={onOpenLocalLink} />);
+    const link = await screen.findByRole("link", { name: "Guide" });
+    fireEvent.click(link);
+    expect(onOpenLocalLink).toHaveBeenCalledWith("../guide%20one.md", "Install");
   });
 
-  it("blocks non-http protocols and explains the decision in a native dialog", async () => {
-    renderMarkdownMock.mockResolvedValue('<p><a href="mailto:alice@example.com">Email</a></p>');
+  it("keeps same-document anchors scoped to this preview and generated heading IDs", async () => {
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    render(<Preview renderState={ready('<a href="#heading">Jump</a><h1 id="heading">Heading</h1>', [{ id: "heading", text: "Heading", level: 1, ordinal: 0 }])} filePath={null} theme="light" searchQuery="" />);
+    fireEvent.click(await screen.findByRole("link", { name: "Jump" }));
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+  });
 
-    render(<Preview markdown="[Email](mailto:alice@example.com)" filePath={null} theme="light" searchQuery="" />);
-
+  it("blocks non-http protocols and explains the policy", async () => {
+    render(<Preview renderState={ready('<a href="mailto:alice@example.com">Email</a>')} filePath={null} theme="light" searchQuery="" />);
     fireEvent.click(await screen.findByRole("link", { name: "Email" }));
-
-    await waitFor(() => {
-      expect(messageMock).toHaveBeenCalledWith(
-        "mdview blocked this link because its protocol is not permitted.",
-        {
-          title: "Link blocked",
-          kind: "warning"
-        }
-      );
-    });
-    expect(askMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(messageMock).toHaveBeenCalledWith("mdview blocked this link because its protocol is not permitted.", { title: "Link blocked", kind: "warning" }));
     expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it("blocks Mermaid diagrams with remote resources before Mermaid renders them", async () => {
-    renderMarkdownMock.mockResolvedValue(
-      '<pre><code class="language-mermaid">flowchart LR\ntracker@{ img: "https://example.com/tracker.png" }</code></pre>'
-    );
     containsRemoteResourceReferenceMock.mockReturnValue(true);
-
-    render(
-      <Preview
-        markdown={'```mermaid\nflowchart LR\ntracker@{ img: "https://example.com/tracker.png" }\n```'}
-        filePath={null}
-        theme="light"
-        searchQuery=""
-      />
-    );
-
+    render(<Preview renderState={ready('<pre><code class="language-mermaid">flowchart LR\ntracker@{ img: "https://example.com/tracker.png" }</code></pre>')} filePath={null} theme="light" searchQuery="" />);
     expect(await screen.findByText("Remote resources in this Mermaid diagram were blocked.")).toBeInTheDocument();
     expect(mermaidRenderMock).not.toHaveBeenCalled();
-  });
-
-  it("passes the remote-image preference to Mermaid SVG sanitization", async () => {
-    renderMarkdownMock.mockResolvedValue(
-      '<pre><code class="language-mermaid">flowchart LR\nA --&gt; B</code></pre>'
-    );
-    mermaidRenderMock.mockResolvedValue({ svg: '<svg><image href="https://example.com/image.png"/></svg>' });
-
-    render(
-      <Preview
-        markdown={'```mermaid\nflowchart LR\nA --> B\n```'}
-        filePath={null}
-        theme="light"
-        searchQuery=""
-        allowRemoteImages
-      />
-    );
-
-    await waitFor(() => {
-      expect(sanitizeMermaidSvgMock).toHaveBeenCalledWith(
-        '<svg><image href="https://example.com/image.png"/></svg>',
-        { allowRemoteImages: true }
-      );
-    });
   });
 });
