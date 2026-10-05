@@ -56,4 +56,19 @@ describe("Preview code controls", () => {
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(document.querySelector("textarea")).not.toBeInTheDocument();
   });
+
+  it("keeps copy controls active when another result has identical HTML", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const html = '<pre><code class="language-js">const answer = 42;</code></pre><table><thead><tr><th>Value</th></tr></thead><tbody><tr><td>42</td></tr></tbody></table>';
+    const firstResult = ready(html);
+    const view = render(<Preview renderState={firstResult} filePath={null} theme="light" searchQuery="" />);
+    expect(view.container.querySelectorAll(".table-scroll")).toHaveLength(1);
+
+    view.rerender(<Preview renderState={ready(html)} filePath={null} theme="light" searchQuery="" />);
+    expect(view.container.querySelectorAll(".table-scroll")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Copy js code" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText).toHaveBeenCalledWith("const answer = 42;");
+  });
 });

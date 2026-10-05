@@ -65,6 +65,7 @@ export function Preview({
   const result: RenderResult | null = renderState.status === "success" ? renderState.result : null;
   const html = useMemo(() => result ? prepareMarkdownImageSources(result.html) : "", [result]);
   const htmlContent = useMemo(() => ({ __html: html }), [html]);
+  const enhancementKey = result ? html : null;
 
   useEffect(() => {
     const root = containerRef.current;
@@ -80,10 +81,10 @@ export function Preview({
 
   useEffect(() => {
     const root = containerRef.current;
-    if (!root || !result) return;
+    if (!root || enhancementKey === null) return;
     enhanceTables(root);
     return enhanceCodeBlocks(root);
-  }, [html, result]);
+  }, [enhancementKey]);
 
 
   useEffect(() => {
