@@ -1,0 +1,6 @@
+# Version preparation must produce the same tree on every build platform.
+package.json text eol=lf
+src-tauri/tauri.conf.json text eol=lf
+src-tauri/Cargo.toml text eol=lf
+src-tauri/Cargo.lock text eol=lf
+CHANGELOG.md text eol=lf
