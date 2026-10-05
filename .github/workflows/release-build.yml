@@ -30,7 +30,7 @@ permissions:
 jobs:
   validate:
     name: Validate
-    if: github.event_name != 'workflow_call'
+    if: inputs.candidate_sha == ''
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

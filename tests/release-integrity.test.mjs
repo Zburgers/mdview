@@ -114,6 +114,7 @@ test("updater manifest requires matching tag and signed assets", async () => {
 test("release workflow validates code before building the version candidate", async () => {
   const workflow = await readFile(path.join(root, ".github/workflows/release-build.yml"), "utf8");
   assert.match(workflow, /workflow_call:[\s\S]*?candidate_sha:[\s\S]*?candidate_version:[\s\S]*?candidate_tree_sha:/);
+  assert.match(workflow, /validate:\s*\n\s*name: Validate\s*\n\s*if: inputs\.candidate_sha == ''/);
   assert.match(workflow, /bundle:\s*\n\s*name: Bundle[\s\S]*?if: inputs\.candidate_sha != ''/);
   assert.match(workflow, /Prepare and verify candidate tree[\s\S]*?EXPECTED_TREE[\s\S]*?git write-tree/);
   assert.match(workflow, /Build Linux bundles[\s\S]*?Build Windows and macOS bundles/);
